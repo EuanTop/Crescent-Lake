@@ -1,25 +1,25 @@
-# 半湾 · Crescent Lake
+# Crescent Lake
 
-一幅缓慢发生的实时三维风景：弧形草岸、一只白天鹅、轻微水纹与游动后的涟漪。
+An illustrated living landscape: a curved grassy shore, a white swan, passing clouds, small flying birds, and ripples that remember where the swan has been.
 
-这是独立的本地工程和 Git 仓库。第一版用于讨论材质、构图、颜色和节奏，不代表月牙湾或亮马河的实景测绘。
+This is an independent local project and Git repository. It explores composition, color and movement rather than reproducing a surveyed location.
 
-## 运行
+## Run
 
-需要 Node.js 22.12 或以上版本。
+Requires Node.js 22.12 or newer.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-打开终端打印的本地地址。固定预览端口：
+For a fixed preview address:
 
 ```sh
 npm run dev -- --port 5187 --strictPort
 ```
 
-校验与构建：
+Validate and build:
 
 ```sh
 npm test
@@ -27,46 +27,49 @@ npm run build
 npm run preview
 ```
 
-`dist/` 为静态构建产物，不提交 Git。浏览器需要支持 WebGL 2。页面运行时只加载本地文件，不依赖远程字体、图片或模型服务。
+The static build is written to `dist/`, which is ignored by Git. WebGL 2 is required. All runtime models, geometry and typography are local; no external assets, fonts or services are requested.
 
-## 交互
+## Scene settings
 
-- **晨光 / 暮色**：平滑切换光色及阴影方向。
-- **停一会儿 / 继续看风景**：暂停、继续鸟、水纹和草的运动；暂停稳定后停止重复绘制。
-- **风的轻重**：调整草叶摆动与水面细波纹。
-- **留住此刻**：导出当前三维画面的 PNG；不含网页文字与纸边。
-- 遵循系统减少动态效果的偏好：初次打开时默认暂停，仍可手动播放。
+Open the **=** button at the right edge. Close with the × button, Escape, or a click outside. Hidden controls are removed from keyboard navigation. The panel fits narrow screens and scrolls independently when needed.
 
-## 技术与工程组织
+- **Color story**: Soft Sage retains the original painted palette; Blue Reverie adds cobalt water and cool vegetation; Wild River adds olive water and a verdant shore. Water, reflections, grass, trees, rocks and shoreline change together.
+- **Light**: Morning or Golden hour, with a smooth change of light and shadow direction.
+- **Wind strength**: controls traveling gusts, grass-tip flutter and water ripples. Still removes all grass displacement; Windy makes the gusts clearly visible.
+- **Swan movement**: adjusts gentle breathing, wing settling and occasional stretches.
+- **Passing overhead**: independently show or hide drifting clouds and flying birds.
+- **Pause / Resume**: freezes the swan, grass, clouds, birds, water and wakes together. Settings remain adjustable. Repeated drawing stops once the scene is stable.
+- **Save image**: exports a PNG of the current three-dimensional scene, without page text or controls.
 
-| 文件                     | 职责                                     |
-| ------------------------ | ---------------------------------------- |
-| `src/scene/world.ts`     | 相机、光照、模型加载、游动路线和生命周期 |
-| `src/scene/materials.ts` | 四阶调色板、法线变换、阴影与色温         |
-| `src/scene/water.ts`     | 平面反射、程序化水纹和世界坐标尾波       |
-| `src/scene/landscape.ts` | 草岸、树木、实例化草丛、花与石头         |
-| `src/scene/motion.ts`    | 与帧率无关的路程推进及有限长度尾波历史   |
-| `scripts/create_bird.py` | 可重现的 Blender 天鹅模型生成器          |
-| `public/models/swan.glb` | 已生成的模型，运行页面不需要 Blender     |
+The system's reduced-motion preference starts the scene paused. Playback can still be started manually.
 
-采用 Three.js、TypeScript、Vite 和自定义 GLSL。精确版本记录在依赖文件与 lockfile 中。没有运行时 React 依赖。
+## Implementation
 
-### 重新生成天鹅
+| File                      | Responsibility                                                     |
+| ------------------------- | ------------------------------------------------------------------ |
+| `src/scene/world.ts`      | Camera, lighting, model loading, swimming route and lifecycle      |
+| `src/scene/palettes.ts`   | Three named color stories and lake colors                          |
+| `src/scene/materials.ts`  | Four-band painted lighting and shadows                             |
+| `src/scene/water.ts`      | Planar reflection, procedural ripples and world-space wakes        |
+| `src/scene/landscape.ts`  | Irregular shore, trees, curved instanced grass and traveling gusts |
+| `src/scene/swan.ts`       | Wing articulation, breathing and stretching                        |
+| `src/scene/atmosphere.ts` | Procedural clouds and flapping bird silhouettes                    |
+| `src/scene/motion.ts`     | Frame-rate-independent travel and bounded wake history             |
+| `scripts/create_bird.py`  | Reproducible Blender model generator                               |
+| `public/models/swan.glb`  | Self-contained swan asset; Blender is not needed to run the page   |
 
-已有模型可直接使用。需要修改体态时，用 Blender 运行：
+Built with Three.js, TypeScript, Vite and custom GLSL; exact versions are locked. No runtime React dependency.
+
+### Regenerate the swan
 
 ```sh
 /Applications/Blender.app/Contents/MacOS/Blender -b --python scripts/create_bird.py
 ```
 
-生成器使用曲线扫掠、椭球、翼羽曲面与胸颈布尔连接。导出约263 KiB 的单个 GLB，不需要外部纹理或解码器。Three.js 坐标中 +Y 向上、+Z 为鸟的前进方向，水线为 Y=0；视图中鸟另施加 1.12 倍缩放。
+The original generator uses swept curves, ellipsoids, feather surfaces and a continuous body/neck union. The exported GLB is about 263 KiB, with no textures or decoders. Three.js coordinates use +Y up and +Z forward, with the waterline at Y=0; the scene scales the swan by 1.12.
 
-## 当前边界
+## Scope
 
-- 水面使用风格化的波纹和低分辨率平面反射；尾波是视觉近似，没有求解流体。
-- 游动路线经过预设，鸟的颈部没有独立骨骼动画。
-- 风格来自形体、色阶、阴影和配色；当前没有启用 Kuwahara 或全屏油画滤镜。
-- 手机布局已通过桌面浏览器390×844模拟检查，尚未在实体手机上评估帧率与功耗。
-- 项目仅在本地 Git 提交，未创建或推送远程仓库。
+Ripples and wind are visual approximations rather than fluid simulation. The swan follows a designed closed path. Animation articulates model parts without a skeletal neck rig. Styling comes from authored shapes, color bands and lighting; no full-screen painterly filter is enabled. Desktop and emulated mobile checks do not establish physical-phone performance or battery usage.
 
-参考来源与素材归属见 [设计与技术记录](docs/DESIGN.md)，检查记录见 [验证记录](docs/VALIDATION.md)。
+The project is committed locally; no remote repository has been created or pushed. See [design notes](docs/DESIGN.md) and [validation](docs/VALIDATION.md).

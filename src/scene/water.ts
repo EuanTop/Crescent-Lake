@@ -7,6 +7,7 @@ import {
   Vector4,
 } from "three";
 import { Reflector } from "three/addons/objects/Reflector.js";
+import { palettes, type PaletteId } from "./palettes";
 import { WAKE_CAPACITY, WakeHistory } from "./motion";
 
 export function createWater() {
@@ -26,6 +27,9 @@ export function createWater() {
         color: { value: new Color("#85aa9f") },
         tDiffuse: { value: null },
         textureMatrix: { value: new Matrix4() },
+        uDeep: { value: new Color(palettes.sage.deep) },
+        uPale: { value: new Color(palettes.sage.pale) },
+        uReflectionTint: { value: new Color(palettes.sage.reflection) },
         uTime: { value: 0 },
         uWind: { value: 0.4 },
         uWarmth: { value: 0 },
@@ -46,6 +50,7 @@ export function createWater() {
       `,
       fragmentShader: /* glsl */ `
         uniform sampler2D tDiffuse;
+        uniform vec3 uDeep, uPale, uReflectionTint;
         uniform float uTime, uWind, uWarmth, uReflection;
         uniform vec2 uBird;
         uniform vec4 uWakes[${WAKE_CAPACITY}];
@@ -82,15 +87,15 @@ export function createWater() {
             distortion += normalize(d + vec2(0.0001)) * envelope * 0.0018;
           }
           // Broad transparent washes, kept intentionally quieter than the bird.
-          vec3 deep = vec3(0.228, 0.409, 0.357);
-          vec3 pale = vec3(0.393, 0.567, 0.457);
+          vec3 deep = uDeep;
+          vec3 pale = uPale;
           vec3 col = mix(deep, pale, smoothstep(0.1, 0.9, n) * 0.73);
           col += sin(p.y*0.19 + p.x*0.13) * 0.018;
           vec4 reflectedUv = vReflection;
           reflectedUv.xy += distortion * reflectedUv.w;
           vec3 reflection = texture2DProj(tDiffuse, reflectedUv).rgb;
           // Reflection is mixed into the water wash, never a polished mirror.
-          col = mix(col, reflection * vec3(0.83, 0.97, 0.86), uReflection);
+          col = mix(col, reflection * uReflectionTint, uReflection);
           float spark = smoothstep(0.93, 1.0, wave*0.5+0.5) * smoothstep(0.61,0.78,small);
           col += vec3(0.19,0.18,0.12) * spark * (0.13+uWind*0.12);
           col -= wakeDark * vec3(0.025, 0.032, 0.025);
@@ -131,6 +136,12 @@ export function createWater() {
       history.points.forEach((point, i) =>
         points[i].set(point.x, point.z, point.born, 1),
       );
+    },
+    setPalette(id: PaletteId) {
+      const palette = palettes[id];
+      material.uniforms.uDeep.value.set(palette.deep);
+      material.uniforms.uPale.value.set(palette.pale);
+      material.uniforms.uReflectionTint.value.set(palette.reflection);
     },
     setReflection(value: number) {
       material.uniforms.uReflection.value = value;

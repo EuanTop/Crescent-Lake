@@ -28,3 +28,11 @@
 ## 后续可以有针对性调整的地方
 
 先评估白鸟的轮廓与画面比例、湖水的色相、树冠色块和整体疏密，再决定是否加入真实地点的岸线、独立头颈动作或更细致的草水交界。改变地点和鸟种应作为明确的设计迭代。
+
+## Living landscape iteration — 2026-10-28
+
+The second iteration preserves the original composition and adds two color stories drawn from the user's swan photographs: **Blue Reverie** (cool cobalt water, ivory bird, muted cool shore) and **Wild River** (olive water, bright green vegetation). The references guide color relationships, rather than being sampled as textures or imported as scene assets.
+
+The shore uses a finer irregular boundary and a low damp transition. Five tapered, curved ribbons form each grass tuft. A smooth world-space noise field travels over the bank; blade-specific phases add flutter, so movement is coherent at the scale of a gust and varied at the scale of a leaf. Randomness is seeded during construction and sampled continuously in time, preventing frame-to-frame flicker.
+
+The swan's wing parts articulate around shoulder pivots, with restrained intermittent stretches and settling. Clouds and a small flock add independent overhead movement within the existing elevated view. All motion shares the same scene clock so pause freezes the whole composition. All visible interface copy is English, and settings live in one collapsible right-hand panel.

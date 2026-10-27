@@ -5,6 +5,7 @@ import { createToonMaterial } from "./materials";
 export function createLandscape(): {
   group: THREE.Group;
   update(time: number, wind: number): void;
+  setPalette(id: "sage" | "blue" | "green"): void;
   dispose(): void;
 } {
   const group = new THREE.Group();
@@ -38,6 +39,9 @@ export function createLandscape(): {
   const leafLightMaterial = material(
     createToonMaterial(["#456947", "#719050", "#97b762", "#bbce8b"]),
   );
+  const wetSandMaterial = material(
+    createToonMaterial(["#7d9278", "#a6b194", "#c2c9a7", "#d7d9bb"]),
+  );
   let seed = 73021;
   const random = (): number => {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
@@ -47,7 +51,11 @@ export function createLandscape(): {
     -8.05 +
     2.9 * Math.cos((z / 23) * Math.PI) +
     0.19 * Math.sin(z * 0.66) +
-    0.07 * Math.sin(z * 1.7);
+    0.09 * Math.sin(z * 1.7 + 0.4 * Math.sin(z * 0.7)) +
+    0.035 * Math.sin(z * 4.7);
+  const shoreWidth = (z: number): number =>
+    0.23 + 0.07 * Math.sin(z * 1.2) + 0.04 * Math.sin(z * 3.7);
+  const shoreOuter = (z: number): number => boundary(z) + shoreWidth(z);
 
   // Parallel strips make a soft bank and a narrow, pale waterline.
   const strip = (
@@ -57,7 +65,7 @@ export function createLandscape(): {
   ): THREE.BufferGeometry => {
     const vertices: number[] = [];
     const indices: number[] = [];
-    const steps = 104;
+    const steps = 480;
     const columns = 8;
     for (let row = 0; row <= steps; row++) {
       const z = -42 + (row / steps) * 84;
@@ -102,35 +110,59 @@ export function createLandscape(): {
   const sand = new THREE.Mesh(
     strip(
       boundary,
-      (z) => boundary(z) + 0.27 + 0.04 * Math.sin(z * 1.4),
-      (u) => 0.179 - u * 0.13,
+      shoreOuter,
+      (u, z) =>
+        0.179 -
+        Math.pow(u, 0.72) * 0.15 +
+        Math.sin(z * 3.1) * Math.sin(u * Math.PI) * 0.008,
     ),
     sandMaterial,
   );
   sand.receiveShadow = true;
   group.add(sand);
 
-  // One small tuft contains three curved blades. Instancing keeps the bank cheap.
+  const dampEdge = new THREE.Mesh(
+    strip(
+      shoreOuter,
+      (z) => shoreOuter(z) + 0.07 + 0.035 * Math.sin(z * 3.1),
+      (u) => 0.028 - u * 0.022,
+    ),
+    wetSandMaterial,
+  );
+  dampEdge.receiveShadow = true;
+  group.add(dampEdge);
+
+  // Five distinct, arcing ribbons form each tuft. The tips close to real points,
+  // and lengths/widths vary before instancing rather than repeating rigid fans.
   const bladeVertices: number[] = [];
+  const bladeGrowth: number[] = [];
+  const bladePhases: number[] = [];
   const bladeIndices: number[] = [];
-  for (let blade = 0; blade < 3; blade++) {
-    const angle = (blade / 3) * Math.PI * 2;
-    const height = 0.31 + blade * 0.035;
-    const width = 0.036;
+  const bladeLengths = [0.29, 0.43, 0.36, 0.51, 0.32];
+  const bladeWidths = [0.024, 0.032, 0.022, 0.029, 0.037];
+  const segments = 7;
+  for (let blade = 0; blade < bladeLengths.length; blade++) {
+    const angle = blade * 2.39996 + 0.2 * Math.sin(blade * 4.7);
+    const height = bladeLengths[blade];
+    const width = bladeWidths[blade];
     const start = bladeVertices.length / 3;
-    for (let level = 0; level < 4; level++) {
-      const t = level / 3;
-      const bend = t * t * 0.1;
-      const halfWidth = width * (1 - t * 0.92);
+    for (let level = 0; level <= segments; level++) {
+      const t = level / segments;
+      const arc = height * (0.19 + blade * 0.045) * t * t;
+      const curl = Math.sin(t * Math.PI * 0.8) * t * 0.035;
+      const halfWidth =
+        width * Math.pow(1 - t, 0.76) * (0.68 + 0.65 * Math.sin(t * Math.PI));
       for (const side of [-1, 1]) {
         bladeVertices.push(
-          Math.cos(angle) * bend + Math.sin(angle) * halfWidth * side,
-          t * height,
-          Math.sin(angle) * bend - Math.cos(angle) * halfWidth * side,
+          Math.cos(angle) * arc + Math.sin(angle) * (halfWidth * side + curl),
+          height * (t - 0.1 * t * t * t),
+          Math.sin(angle) * arc - Math.cos(angle) * (halfWidth * side + curl),
         );
+        bladeGrowth.push(t);
+        bladePhases.push(blade * 1.719);
       }
     }
-    for (let level = 0; level < 3; level++) {
+    for (let level = 0; level < segments; level++) {
       const a = start + level * 2;
       bladeIndices.push(a, a + 2, a + 1, a + 2, a + 3, a + 1);
     }
@@ -140,64 +172,113 @@ export function createLandscape(): {
     "position",
     new THREE.Float32BufferAttribute(bladeVertices, 3),
   );
+  bladeGeometry.setAttribute(
+    "aGrowth",
+    new THREE.Float32BufferAttribute(bladeGrowth, 1),
+  );
+  bladeGeometry.setAttribute(
+    "aBladePhase",
+    new THREE.Float32BufferAttribute(bladePhases, 1),
+  );
   bladeGeometry.setIndex(bladeIndices);
   bladeGeometry.computeVertexNormals();
   const grassMaterial = material(
     new THREE.ShaderMaterial({
       side: THREE.DoubleSide,
-      uniforms: { uTime: { value: 0 }, uWind: { value: 1 } },
-      vertexShader: `
-      uniform float uTime;
-      uniform float uWind;
-      varying float vHeight;
-      varying float vVariation;
-      void main() {
-        vec4 root = modelMatrix * instanceMatrix * vec4(0., 0., 0., 1.);
-        vec3 p = position;
-        float sway = sin(root.x * .8 + root.z * .55 + uTime * .75)
-          + .35 * sin(root.z * 1.9 - uTime * 1.1);
-        p.x += sway * p.y * p.y * .38 * uWind;
-        p.z += sway * p.y * p.y * .15 * uWind;
-        vHeight = clamp(position.y / .38, 0., 1.);
-        vVariation = fract(sin(dot(root.xz, vec2(12.9898, 78.233))) * 43758.5453);
-        gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(p, 1.);
-      }
-    `,
-      fragmentShader: `
-      varying float vHeight;
-      varying float vVariation;
-      void main() {
-        vec3 low = mix(vec3(.12,.23,.09), vec3(.19,.30,.12), vVariation);
-        vec3 high = mix(vec3(.35,.46,.17), vec3(.47,.56,.24), vVariation);
-        gl_FragColor = vec4(mix(low, high, smoothstep(.05, 1., vHeight)), 1.);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }
-    `,
+      uniforms: {
+        uTime: { value: 0 },
+        uWind: { value: 0.35 },
+        uGrassLowA: { value: new THREE.Color().setRGB(0.12, 0.23, 0.09) },
+        uGrassLowB: { value: new THREE.Color().setRGB(0.19, 0.3, 0.12) },
+        uGrassHighA: { value: new THREE.Color().setRGB(0.35, 0.46, 0.17) },
+        uGrassHighB: { value: new THREE.Color().setRGB(0.47, 0.56, 0.24) },
+      },
+      vertexShader: /* glsl */ `
+        uniform float uTime;
+        uniform float uWind;
+        attribute float aGrowth;
+        attribute float aBladePhase;
+        varying float vHeight;
+        varying float vVariation;
+        varying float vBladeLight;
+        float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+        float noise(vec2 p) {
+          vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+          return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
+        }
+        void main() {
+          vec4 root = modelMatrix * instanceMatrix * vec4(0.,0.,0.,1.);
+          vec4 world = modelMatrix * instanceMatrix * vec4(position,1.);
+          float phase = hash(root.xz);
+          // Low-frequency weather travels across the bank. Every blade shares
+          // the world-space wind direction, regardless of its random tuft yaw.
+          float gust = noise(root.xz * .24 - vec2(uTime*.28,uTime*.11));
+          float swell = sin(dot(root.xz,vec2(.55,.24)) - uTime*1.6 + gust*2.4);
+          float breeze = .32 + .88*gust + .40*swell;
+          float flutter = sin(uTime*(2.5+phase*1.7) + phase*31. + aBladePhase + root.x*.3);
+          float tip = aGrowth*aGrowth;
+          float stiffness = mix(.82,1.18,phase);
+          float amplitude = uWind*(.38+.45*uWind)*stiffness;
+          vec2 bend = vec2(.93,.36)*breeze + vec2(-.36,.93)*flutter*.16*aGrowth;
+          world.xz += bend * tip * amplitude;
+          world.y -= length(bend) * tip * amplitude * .13;
+          vHeight = aGrowth;
+          vVariation = phase;
+          vBladeLight = .94 + .06*cos(aBladePhase + phase*3.);
+          gl_Position = projectionMatrix * viewMatrix * world;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform vec3 uGrassLowA, uGrassLowB, uGrassHighA, uGrassHighB;
+        varying float vHeight;
+        varying float vVariation;
+        varying float vBladeLight;
+        void main() {
+          vec3 low = mix(uGrassLowA,uGrassLowB,vVariation);
+          vec3 high = mix(uGrassHighA,uGrassHighB,vVariation);
+          vec3 col = mix(low,high,smoothstep(.02,.97,vHeight))*vBladeLight;
+          gl_FragColor = vec4(col,1.);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `,
     }),
   );
   const count = 3800;
   const grass = new THREE.InstancedMesh(bladeGeometry, grassMaterial, count);
-  grass.name = "Wind in the bank grasses";
+  grass.name = "Living grass — curved blades and traveling gusts";
   const transform = new THREE.Object3D();
   for (let i = 0; i < count; i++) {
-    const z = -11.8 + random() * 23.6;
-    // Extra density at the water's edge, interrupted by small open patches.
-    const depth =
-      random() < 0.66
-        ? 0.15 + Math.pow(random(), 1.8) * 2.0
-        : 0.2 + random() * 7;
+    const z = -12.3 + random() * 24.6;
+    let depth =
+      random() < 0.69
+        ? 0.04 + Math.pow(random(), 1.7) * 2.2
+        : 0.25 + random() * 7;
+    // Patches share a softly clustered density; occasional tall blades emerge
+    // from the fine, low fringe rather than forming a uniformly cut lawn.
+    const patch = 0.5 + 0.5 * Math.sin(z * 1.17 + Math.sin(z * 0.43) * 2.1);
+    depth += patch * 0.22;
     const x = boundary(z) - depth;
-    const clump = 0.72 + 0.28 * Math.sin(x * 3.1 + z * 2.5);
-    transform.position.set(x, 0.19, z);
-    transform.rotation.set(0, random() * Math.PI * 2, (random() - 0.5) * 0.16);
-    const scale = (0.65 + random() * 0.8) * clump;
-    transform.scale.set(scale, scale * (0.75 + random() * 0.5), scale);
+    const fringe = depth < 0.38;
+    const size = (fringe ? 0.52 : 0.64) + random() * (fringe ? 0.67 : 0.9);
+    transform.position.set(x, 0.18, z);
+    transform.rotation.set(
+      (random() - 0.5) * 0.12,
+      random() * Math.PI * 2,
+      (random() - 0.5) * 0.16,
+    );
+    transform.scale.set(
+      size * (0.8 + random() * 0.4),
+      size * (0.78 + random() * 0.57),
+      size,
+    );
     transform.updateMatrix();
     grass.setMatrixAt(i, transform.matrix);
   }
   grass.instanceMatrix.needsUpdate = true;
   grass.computeBoundingSphere();
+  // The shader displaces vertices beyond the static geometry bound.
+  if (grass.boundingSphere) grass.boundingSphere.radius += 1.5;
   group.add(grass);
 
   const pebbleGeometry = geometry(new THREE.SphereGeometry(1, 9, 6));
@@ -324,11 +405,61 @@ export function createLandscape(): {
   centers.instanceMatrix.needsUpdate = true;
   group.add(flowers, centers);
 
+  const palettes = {
+    sage: {
+      bank: ["#456647", "#6e9355", "#97b468", "#b0c67c"],
+      sand: ["#a69f75", "#c6bd8c", "#dbd5ab", "#e9e4c6"],
+      wet: ["#7d9278", "#a6b194", "#c2c9a7", "#d7d9bb"],
+      leaf: ["#355c48", "#547d4e", "#85aa5a", "#a9c478"],
+      leafLight: ["#456947", "#719050", "#97b762", "#bbce8b"],
+      rock: ["#7f8980", "#a8aea0", "#c4c8b5", "#dcddc9"],
+      grass: ["#617f55", "#799563", "#a0b472", "#b6c58a"],
+    },
+    blue: {
+      bank: ["#426360", "#6c8b7a", "#93ab8e", "#b4c2a0"],
+      sand: ["#8d9a8b", "#b1bbac", "#cdd3bd", "#e1e3ce"],
+      wet: ["#688b83", "#91aaa1", "#aec2b3", "#c7d2bd"],
+      leaf: ["#345c56", "#547e6c", "#84a68a", "#adc2a0"],
+      leafLight: ["#466e5e", "#719480", "#9ab79a", "#c0d0b0"],
+      rock: ["#748b89", "#9aafaa", "#bbcac0", "#d6dfd1"],
+      grass: ["#547969", "#73917b", "#9eb39a", "#b4c6a6"],
+    },
+    green: {
+      bank: ["#3b653d", "#608d45", "#8bb15b", "#acc576"],
+      sand: ["#a49e69", "#c1bd83", "#d6d3a0", "#e5e2bb"],
+      wet: ["#729567", "#9eb180", "#bbca9b", "#d3dab4"],
+      leaf: ["#285c3f", "#4b8249", "#7eac55", "#a8c672"],
+      leafLight: ["#3e6e3e", "#68964b", "#96bb60", "#bed388"],
+      rock: ["#7c8a77", "#a6b096", "#c0c9aa", "#d9dfc3"],
+      grass: ["#587b43", "#789350", "#a3b66a", "#bac681"],
+    },
+  };
+  function setPalette(id: "sage" | "blue" | "green"): void {
+    const palette = palettes[id];
+    const recolor = (target: THREE.ShaderMaterial, colors: string[]): void => {
+      (target.uniforms.uPalette.value as THREE.Color[]).forEach((color, i) =>
+        color.set(colors[i]),
+      );
+    };
+    recolor(bankMaterial, palette.bank);
+    recolor(sandMaterial, palette.sand);
+    recolor(wetSandMaterial, palette.wet);
+    recolor(leafMaterial, palette.leaf);
+    recolor(leafLightMaterial, palette.leafLight);
+    recolor(rockMaterial, palette.rock);
+    ["uGrassLowA", "uGrassLowB", "uGrassHighA", "uGrassHighB"].forEach(
+      (name, i) => {
+        grassMaterial.uniforms[name].value.set(palette.grass[i]);
+      },
+    );
+  }
+
   return {
     group,
+    setPalette,
     update(time, wind) {
       grassMaterial.uniforms.uTime.value = time;
-      grassMaterial.uniforms.uWind.value = wind;
+      grassMaterial.uniforms.uWind.value = THREE.MathUtils.clamp(wind, 0, 1);
     },
     dispose() {
       geometries.forEach((value) => value.dispose());

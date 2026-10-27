@@ -19,6 +19,9 @@ import { createLandscape } from "./landscape";
 import { createToonMaterial, updatePaletteLighting } from "./materials";
 import { advanceDistance } from "./motion";
 import { createWater } from "./water";
+import { palettes, type PaletteId } from "./palettes";
+import { createSwanMotion } from "./swan";
+import { createAtmosphere } from "./atmosphere";
 
 export interface WorldOptions {
   onReady(): void;
@@ -45,7 +48,7 @@ export async function createWorld(
   renderer.domElement.setAttribute("role", "img");
   renderer.domElement.setAttribute(
     "aria-label",
-    "插画风格的湖面，一只白天鹅沿弧形草岸缓缓游动，身后泛起涟漪。",
+    "An illustrated lake with a white swan, a wind-swept grassy shore, passing clouds and flying birds.",
   );
   container.append(renderer.domElement);
 
@@ -91,6 +94,7 @@ export async function createWorld(
     dark: createToonMaterial(["#182f2b", "#223c33", "#344938", "#536347"]),
   };
   const loader = new GLTFLoader();
+  let swanMotion: ReturnType<typeof createSwanMotion>;
   try {
     const gltf = await loader.loadAsync(
       `${import.meta.env.BASE_URL}models/swan.glb`,
@@ -113,14 +117,20 @@ export async function createWorld(
       object.receiveShadow = true;
     });
     bird.add(gltf.scene);
+    swanMotion = createSwanMotion(gltf.scene);
   } catch {
-    options.onError("白鸟暂时没有抵达。请刷新页面，重新展开风景。");
+    options.onError(
+      "The swan could not be loaded. Please refresh to try again.",
+    );
     landscape.dispose();
     water.dispose();
     Object.values(birdMaterials).forEach((m) => m.dispose());
     renderer.dispose();
     throw new Error("Unable to load the swan model");
   }
+
+  const atmosphere = createAtmosphere();
+  scene.add(atmosphere.group);
 
   // Gentle closed route, entirely inside the open part of the lake.
   const route = new CatmullRomCurve3(
@@ -140,7 +150,8 @@ export async function createWorld(
   let elapsed = 0;
   let lastStamp = 0;
   let paused = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let wind = 0.35;
+  let wind = 0.55;
+  let activity = 0.65;
   let warmth = 0;
   let targetWarmth = 0;
   let lastReadout = -1;
@@ -190,6 +201,8 @@ export async function createWorld(
     bird.rotation.y = Math.atan2(tangent.x, tangent.z);
     bird.rotation.z = Math.sin(elapsed * 1.15) * 0.012;
     tail.copy(position).addScaledVector(tangent, -1.1);
+    swanMotion.update(elapsed, activity);
+    atmosphere.update(elapsed, wind);
     landscape.update(elapsed, wind);
     updatePaletteLighting(elapsed, warmth);
     water.update(elapsed, wind, warmth, position.x, position.z, tail.x, tail.z);
@@ -211,7 +224,9 @@ export async function createWorld(
 
   const onContextLost = (event: Event) => {
     event.preventDefault();
-    options.onError("风景暂时停住了。请刷新页面恢复。");
+    options.onError(
+      "The landscape has paused unexpectedly. Please refresh to restore it.",
+    );
   };
   renderer.domElement.addEventListener("webglcontextlost", onContextLost);
 
@@ -223,6 +238,26 @@ export async function createWorld(
       paused = !paused;
       needsRender = true;
       return paused;
+    },
+    setPalette(id: PaletteId) {
+      if (!(id in palettes)) return;
+      water.setPalette(id);
+      landscape.setPalette(id);
+      morningBackground.set(palettes[id].sky);
+      eveningBackground.set(palettes[id].sky).lerp(new Color("#eed9b3"), 0.12);
+      needsRender = true;
+    },
+    setActivity(value: number) {
+      activity = Math.min(1, Math.max(0, value));
+      needsRender = true;
+    },
+    setClouds(visible: boolean) {
+      atmosphere.setClouds(visible);
+      needsRender = true;
+    },
+    setBirds(visible: boolean) {
+      atmosphere.setBirds(visible);
+      needsRender = true;
     },
     setWind(value: number) {
       wind = Math.min(1, Math.max(0, value));
@@ -241,7 +276,7 @@ export async function createWorld(
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "半湾-crescent-lake.png";
+      link.download = "crescent-lake.png";
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
@@ -256,6 +291,7 @@ export async function createWorld(
       );
       landscape.dispose();
       water.dispose();
+      atmosphere.dispose();
       sun.shadow.dispose();
       bird.traverse((object) => {
         if (object instanceof Mesh) object.geometry.dispose();
