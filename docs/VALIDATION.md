@@ -1,5 +1,11 @@
 # Validation
 
+## Sudden wing-shaking bouts — 2026-10-28 (v0.5.2)
+
+- Replaced the broad2.15-second slow-sway envelope with0.7–0.9-second bouts of3or4quick strokes, approximately0.22–0.25seconds apart. A60ms entrance and120ms settling envelope create a sudden start and clean tuck. Each bout has several seconds of quiet swimming afterward. Default lift reaches about36degrees, bounded at38;200% is bounded at50. A small fore/aft feather motion accompanies the shoulder lift.
+- Arc on the existing5173 server recorded the same9:16 scene at100% activity. Frames at1.03/1.15/1.27/1.40seconds and a portrait detail GIF verify repeated lifted/folded poses. The new complete clip is `artifacts/crescent-lake-quick-wings-24s.mp4`; the prior wake-restoration clip is retained. Route, tail waves, lighting, score and24-second closure are preserved.
+- Real-asset rig tests verify3–4peaks per bout, peak spacing, tucking between strokes, long rest, finite bounded transforms, unchanged feather attachment, pause behavior, zero activity and exact loop pose closure. All61tests and the production build pass. The final MP4 is24.000000seconds,1080×1920,H.264 with stereo AAC.
+
 ## Wake shape restoration — 2026-10-28 (v0.5.1)
 
 - The initial fast-loop fix scaled fade alone; its0.4-second emission cadence left widely separated small arcs at the new speed. Restored the accepted spatial design by scaling the full wake clock:215 emissions per24-second lap, approximately0.11163seconds between emissions and3.5833× expansion/fade. Around55 overlapping marks retain the earlier fan form and5.3-world-unit trailing reach. Wind waves, palette, route speed, lighting, typography and music are unchanged.

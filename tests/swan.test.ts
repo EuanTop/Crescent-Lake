@@ -69,7 +69,7 @@ test("wing rig preserves every shipped model part at rest and stays bounded thro
     );
     hinges.forEach((hinge) => {
       maxOpening = Math.max(maxOpening, Math.abs(hinge.rotation.z));
-      assert.ok(Math.abs(hinge.rotation.z) <= MathUtils.degToRad(31) + 1e-12);
+      assert.ok(Math.abs(hinge.rotation.z) <= MathUtils.degToRad(50) + 1e-12);
     });
   }
   assert.ok(maxOpening > 0.09, "the long stretch must actually lift the wings");
@@ -120,11 +120,11 @@ test("24-second loop closes every swan part and includes visible irregular wing 
     );
   }
   assert.ok(
-    maximum > MathUtils.degToRad(18),
+    maximum > MathUtils.degToRad(34),
     "default activity must produce a clearly readable wing lift",
   );
   assert.ok(
-    movingFrames > 70 && stillFrames > 200,
+    movingFrames > 45 && stillFrames > 500,
     "bursts are intermittent, not constant flying",
   );
   nodes.forEach((node, i) =>
@@ -134,7 +134,7 @@ test("24-second loop closes every swan part and includes visible irregular wing 
   );
 });
 
-test("200% swan activity increases gesture frequency and lift without detaching pieces or exceeding thirty-one degrees", () => {
+test("200% swan activity increases gesture frequency and lift without detaching pieces or exceeding fifty degrees", () => {
   const observe = (activity: number) => {
     const { root, nodes } = loadHierarchy();
     const motion = createSwanMotion(root);
@@ -160,7 +160,7 @@ test("200% swan activity increases gesture frequency and lift without detaching 
         ...hinges.map((hinge) => Math.abs(hinge.rotation.z)),
       );
       maximum = Math.max(maximum, opening);
-      assert.ok(opening <= MathUtils.degToRad(31) + 1e-12);
+      assert.ok(opening <= MathUtils.degToRad(50) + 1e-12);
       const stretch = opening > 0.065 * wingAmplitude;
       if (stretch && !inStretch) episodes++;
       inStretch = stretch;
@@ -197,8 +197,8 @@ test("activity changes keep the gesture phase continuous, clamp at 200%, and tol
     const { root } = loadHierarchy();
     const motion = createSwanMotion(root);
     motion.update(0, 1);
-    motion.update(19.4, 1);
-    motion.update(19.4, activity);
+    motion.update(19.65, 1);
+    motion.update(19.65, activity);
     const hinges = root.children.filter((node) =>
       /shoulder hinge/.test(node.name),
     );
@@ -210,5 +210,35 @@ test("activity changes keep the gesture phase continuous, clamp at 200%, and tol
   assert.deepEqual(pose(20), strong);
   for (const invalid of [NaN, Infinity, -Infinity, -1]) {
     pose(invalid).forEach((opening) => assert.equal(Math.abs(opening), 0));
+  }
+});
+
+
+test("each default wing-shaking bout has three or four fast peaks and a long rest", () => {
+  const { root } = loadHierarchy();
+  const motion = createSwanMotion(root);
+  const hinge = root.children.find(node => /left shoulder hinge/.test(node.name))!;
+  const dt = 1 / 240;
+  for (let slot = 0; slot < 4; slot++) {
+    const samples: number[] = [];
+    for (let frame = 0; frame <= 6 / dt; frame++) {
+      motion.update(slot * 6 + frame * dt, 1, 24);
+      samples.push(Math.abs(hinge.rotation.z));
+    }
+    const peaks: number[] = [];
+    for (let i = 1; i < samples.length - 1; i++)
+      if (samples[i] > MathUtils.degToRad(25) && samples[i] > samples[i-1] && samples[i] >= samples[i+1])
+        peaks.push(i * dt);
+    assert.ok(peaks.length === 3 || peaks.length === 4, `slot${slot}: ${peaks.length} peaks`);
+    for (let i = 1; i < peaks.length; i++)
+      assert.ok(peaks[i] - peaks[i-1] >= .2 && peaks[i] - peaks[i-1] <= .27);
+    assert.ok(peaks.at(-1)! - peaks[0] < .8);
+    // A clear tuck between two lifts, rather than a held-open flying gesture.
+    for (let i = 1; i < peaks.length; i++) {
+      const between = samples.slice(Math.ceil(peaks[i-1] / dt), Math.floor(peaks[i] / dt));
+      assert.ok(Math.min(...between) < MathUtils.degToRad(5));
+    }
+    const active = samples.filter(angle => angle > MathUtils.degToRad(15)).length * dt;
+    assert.ok(active < .7, "short sudden bursts must leave quiet swimming time");
   }
 });
