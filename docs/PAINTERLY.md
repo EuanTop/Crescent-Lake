@@ -1,60 +1,37 @@
-# Visual language studies — v0.3
+# Rendering
 
-## Direction and selection
+The scene uses authored geometry, four-band palette lighting and a full-resolution style pass. Cel Illustration is the default. There is no spatial blur pass.
 
-The user rejected the first anisotropic Kuwahara experiment because it blurred the scene. It has been replaced with six distinct, sharper WebGL treatments plus an unfiltered baseline. All comparisons use a 9:16 portrait viewport, a portrait artwork, the same palette and a paused scene. The user selects the final visual language; Cel Illustration is the initial preview.
+| Style | Algorithm |
+| --- | --- |
+| Original | Direct scene render |
+| Cel Illustration | Color quantization, Sobel edges and a separate swan silhouette mask |
+| Watercolor | Edge pooling and stable pigment granulation |
+| Risograph | Two ink separations and rotated halftone screens |
+| Copperplate | Luminance-dependent crosshatching |
+| Pixel Story | Block sampling and 4×4 Bayer dithering |
+| Cyanotype | Indigo tonal mapping and pale contours |
 
-| Choice           | Implemented algorithm                                           | Visual intent                                                    |
-| ---------------- | --------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Original         | Direct scene rendering                                          | Unfiltered baseline at full canvas resolution                    |
-| Cel Illustration | RGB Sobel edges + perceptual color quantization                 | Fine outlines and cleaner illustrated color masses               |
-| Watercolor       | Edge pooling + stable procedural pigment granulation            | Transparent paper and pigment character while retaining contours |
-| Risograph        | Two rotated halftone screens + two-ink color separation         | Visible teal/coral print dots and slight ink offset              |
-| Copperplate      | Luminance-dependent multi-direction crosshatching + color edges | Sepia line engraving on cream paper                              |
-| Pixel Story      | Nearest block sampling + 4×4 Bayer ordered dithering            | Deliberate hard-edged pixels and limited color steps             |
-| Cyanotype        | Gradient contours + inverted tonal mapping                      | Pale lines and tones on indigo                                   |
+These are compact stylistic approximations. Watercolor does not simulate pigment transport; Copperplate uses screen-space hatching. Pixel Story deliberately reduces spatial detail.
 
-`src/scene/styles.ts` defines names and descriptions. `src/scene/painterly.ts` implements a linear-color scene target, one style pass and one final display conversion. No style averages neighborhood colors. Sobel neighbors are used only for edge detection. Original bypasses the composer completely. Both render targets and canvas retain the configured device-pixel resolution. Effect strength is adjustable; exports include the selected treatment.
+## Swan and shore
 
-These are original compact stylistic approximations, not full reproductions of the research below. In particular, Watercolor does not simulate fluid transport or Kubelka–Munk glazing; Copperplate uses screen-space procedural hatching rather than curvature-aligned tonal art maps. Pixel Story intentionally removes detail by discretization, not blur. Screen-space ink/dots can shimmer against moving small geometry; pause is useful for controlled comparison.
+A separate mask suppresses internal Sobel edges on the swan while retaining a thin outer contour. Feather overlaps do not receive extra ink. The swan casts shadows without receiving its own feather shadows.
 
-## Primary research and algorithm references
+Low grass covers the whole visible bank, with taller tufts near the shore. Curved ribbons vary in length and direction. Softened roots and limited brightness variation reduce dark stippling. Moving noise supplies coherent gusts; local phases add tip movement. Tree trunks pivot at their roots, with independently phased crowns.
 
-- [Three.js official examples](https://threejs.org/examples/): the `postprocessing / sobel`, `rgb / halftone` and `pixel` examples demonstrate distinct edge, print and discretization approaches. This project implements its own shader treatments and uses installed Three.js post-processing infrastructure.
-- Praun, Hoppe, Webb and Finkelstein, [Real-Time Hatching](https://gfx.cs.princeton.edu/proj/hatching/), SIGGRAPH 2001. Tonal art maps and coherent surface-oriented strokes are a stronger future path if the line-engraving direction is selected.
-- Curtis et al., [Computer-Generated Watercolor](https://grail.cs.washington.edu/wp-content/uploads/2015/08/curtis-1997-cgw.pdf), SIGGRAPH 1997. The physical model distinguishes pigment granulation, edge darkening and layered glazing; those phenomena motivate the simplified watercolor treatment.
-- Kyprianidis et al., [Image and Video Abstraction by Anisotropic Kuwahara Filtering](https://www.kyprianidis.com/p/pg2009/), 2009, and [Polynomial Weighting Functions](https://www.kyprianidis.com/p/tpcg2010/), 2010. Researched and initially prototyped, then removed after the user judged the result too blurry. Restoring this method would require a specific new design decision.
-- [Three.js post-processing manual](https://threejs.org/manual/pages/post-processing.html) documents RenderPass, ShaderPass and final OutputPass color conversion.
+## Water and light
 
-No third-party shader source or image assets are copied into these treatments. WebGL supplies the rendering mechanism; authored shape, composition, color and motion still determine whether the chosen style is convincing.
+Reflector supplies the mirror image. Broad, low-frequency fields move reflections; irregular wavefront segments add translucent wind marks with soft ends and true gaps. Wind changes their movement and visibility while preserving readable reflections.
 
-## Scene corrections carried forward
+Wakes retain emission positions and headings in world space. At the 24-second swim speed, 215 emissions per lap preserve the original spatial density. Their expansion and fade share a 3.5833× clock: approximately 55 overlapping arcs remain visible for 6.14 real seconds. History is prewarmed for a seamless export.
 
-Wind now drives broad, low-frequency swells in surface light and reflection coordinates, without directional bands or fine crest textures. The integrated phase does not jump when the strength slider changes; zero wind stops wind-driven marks while swimming can still create wakes.
+Golden Hour lowers the sun, lengthens shadows and adds honey-colored highlights while preserving cooler shadows. Palette changes always derive from cached source colors, preventing accumulated tint.
 
-Wakes persist 22 seconds, sampled every 0.4 seconds into a 64-point history. After 14 seconds they fade smoothly. Historical points retain world positions and headings through turns. Recent points also form a short V-shaped wake. CPU fade calculation and distance-based fragment rejection bound the work.
+## Resolution
 
-Low grass covers the entire bank in frustum-culled tiles. Taller near-shore tufts taper into it, and grass roots follow ground height. This fixes the previous rectangular and diagonal coverage boundaries.
+The composer and silhouette targets retain the actual render resolution. Native 4K export also resizes the reflection target and presentation canvas. A 2× render ratio preserves the intended outline proportions; typography is drawn at the final resolution.
 
-## Cel refinement — v0.4
+## References
 
-Cel uses a separate antialiased swan silhouette target. All swan meshes render white on layer 1; the mask pass restores renderer, camera and scene state in `finally`. Inside this mask, RGB Sobel edges are suppressed, so overlapping feathers no longer acquire additional ink. A thinner, lighter mask boundary retains the outside shape. The swan casts shadows but does not receive its own shadow, avoiding fine overlapping feather shadow artifacts. Quiet color areas use less posterization so small water marks survive. There is no blur pass.
-
-The final water language returns to lake-wide wavefronts after the user rejected both fine texture and isolated wake-like arc packets. Low-frequency domain warping bends long, sparse wavefronts and varies their spacing; a slowly moving coarse envelope softens their continuity. A narrow smooth crest and an offset, very faint shadow suggest ripples without the original bold stripe field. Maximum wind highlight blend is22.5%, using a color close to the water palette, not white. Broad low-frequency fields also bend reflections. There are no local ring centres, dense microtexture, foam or blur. Typography and paper framing are drawn by the final presentation canvas, identically for preview, PNG and video.
-
-## Softer water, grass and golden light — v0.4.1
-
-Each lake-wide crest now has its own hashed segment spacing and lengths. Segment ends taper over40% of their length; there are true gaps rather than a nonzero opacity floor. Adjacent crests have different break positions, avoiding shared clipping columns. Highlight blend is10% at100%wind and15% at200%, with reduced extra golden emphasis.
-
-Grass retains the same geometry and wind deformation. Its roots are lifted toward middle pigments, random hue spread is narrowed to28%, blade brightness spans98–100%, and the root-to-tip gradient gains a small lift. This reduces the black stipple feeling without blurring the lake or swan.
-
-Golden Hour lowers the sun and separately grades lit pigments, neutral feathers and cooler shadows. Native grass uses cached softened source colors, so switching palettes or returning to Morning cannot accumulate tint. The same golden response is shared between CPU grass colors and toon GLSL.
-
-
-## Closing the24-second scene — v0.5
-
-The swan completes its full closed route in24seconds, both in preview and film. Capture uses real recording time rather than integrated frame deltas. Morning warmth follows a cosine arch, reaching Golden at12seconds and returning to Morning at24seconds. Small animated details use integer numbers of cycles; moving noise samples follow a circular domain path. These constraints close positions, phases and first derivatives without a last-frame dissolve.
-
-Tree trunks pivot gently at fixed roots and crowns have independently phased sway. Swan wing hinges make sudden3–4-stroke bouts per circuit, with rest at the seam. Each bout lasts approximately0.7–0.9seconds, with4–4.5lifts per second and a quick tuck between lifts. The100% lift is bounded at38degrees;200% is capped at50degrees. A small fore/aft feather rotation adds a shaking gesture. Cloud wrapping occurs outside the portrait composition. Fixed-grid wake samples are prewarmed from the previous cycle. The faster bird's wake uses a separate synchronized clock:215 emissions per circuit preserve the accepted spatial spacing, and expansion plus fade use the same3.5833× time scale. Its22-second authored lifetime occupies about6.14seconds of real time, preserving the original overlapping fan instead of drawing sparse small circles.
-
-Wind waves remain lake-wide, with irregular curved fronts, independent fragment lengths, translucent crests and broad feathered ends. Their visibility has increased from the preceding too-subtle pass while the mirror reflection remains intact. All visual review and final frame extraction use9:16.
+[Three.js post-processing](https://threejs.org/manual/pages/post-processing.html) · [Real-Time Hatching](https://gfx.cs.princeton.edu/proj/hatching/) · [Computer-Generated Watercolor](https://grail.cs.washington.edu/wp-content/uploads/2015/08/curtis-1997-cgw.pdf)

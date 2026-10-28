@@ -5,3 +5,23 @@ dist/
 .vite/
 artifacts/
 *.blend1
+
+# Local recordings, masters and audio (README previews are curated separately).
+*.mp4
+*.mkv
+*.mov
+*.webm
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.aac
+exports/
+recordings/
+coverage/
+.env
+.env.*
+!.env.example
+
+# Private publishing research must never be committed.
+docs/prompts/social-launch-research.md

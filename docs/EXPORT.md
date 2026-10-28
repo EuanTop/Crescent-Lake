@@ -1,32 +1,27 @@
-# Local video export
+# Export
 
-## Choose a deliverable
+| Quality | Portrait size | Encoding |
+| --- | --- | --- |
+| Lossless master + MP4 | 2160 × 3840 · 30 fps | FFV1 RGB / float PCM, plus H.264 / AAC share copy |
+| 4K high quality | 2160 × 3840 | Browser video, 80 Mbps target |
+| HD | 1080 × 1920 | Browser video, 24 Mbps target |
 
-| Quality | Portrait size | Video / audio | Use |
-| --- | --- | --- | --- |
-|4K lossless master + MP4|2160×3840,30fps|FFV1 RGB / float32 PCM in MKV; separate H.264 / AAC MP4|Archival master and finished share copy|
-|4K high quality|2160×3840|Browser H.264/VP9 with80Mbps target;256kbps audio|Faster direct capture|
-|HD|1080×1920|Browser24Mbps target;256kbps audio|Smaller quick exports|
+## Lossless master
 
-The default local master lasts24seconds and contains720exact film frames. It renders the scene, silhouette pass, typography and reflection at native4K. A2× render ratio preserves the authored ink proportions. There is no upscaling of an earlier1080p video.
+Run `npm run dev` with FFmpeg on PATH. The local exporter requires FFV1, libx264, PCM float and AAC encoders. Restart an older running development server once after adding this feature.
 
-FFV1 uses RGB (`bgr0`) without chroma subsampling. The final artwork canvas is opaque RGBA8; all decoded RGB values are preserved exactly. The PCM soundtrack retains every original float sample. The separate MP4 uses CRF16 H.264, an explicit RGB-to-BT709 conversion with4:2:0 chroma, and256kbps AAC; it is high quality but is not labeled lossless. Social services can compress that copy again after upload.
+Select **4K lossless master + MP4** in the settings panel. All 720 frames of the 24-second loop render at native 4K, including reflections, post-processing and typography. Frames stream individually to FFmpeg; output timing does not depend on playback speed. Rendering can take several minutes.
 
-## Local requirements and behavior
+The MKV master preserves the opaque canvas RGB values without chroma subsampling and retains the original float PCM. The separate MP4 uses CRF 16 H.264, BT.709 conversion and 256 kbps AAC. It is a share copy, not lossless.
 
-Run the existing project with `npm run dev`, using its same127.0.0.1:5173 address. FFmpeg must be on PATH and include FFV1, libx264, PCMfloat and AAC encoders. An older running Vite server must restart once to load the new plugin. The current task server was restarted on5173; no alternate port is needed.
+Files are saved to `artifacts/exports/<id>/`, alongside a source-frame hash manifest. At completion, the panel offers download links for both files. Controls are excluded from the artwork. Escape cancels and removes incomplete output; completed files remain.
 
-The optional local middleware is loaded only during development. It allows loopback clients with the exact same Origin, bounds supported dimensions and body sizes, accepts one contiguous frame sequence, and streams into FFmpeg with backpressure. It retains no PNG sequence or growing browser frame-blob collection. It checks disk reserve and timeouts, cleans incomplete task-owned exports on cancellation/shutdown, and keeps completed exports with their input-frame hash manifest. A static production build disables the local master option and retains normal video export.
+The development middleware accepts only loopback, same-origin requests, enforces bounded profiles and ordered frames, and checks disk reserve and timeouts. No media is uploaded to an external service. The static build disables this local feature and retains browser capture.
 
-Rendering takes longer than24seconds because quality is independent of playback speed. Controls stay out of the artwork and are locked during export. Escape cancels. At completion, the panel provides **Download lossless master** and **Download4K MP4** links. The actual files already exist under `artifacts/exports/<random-id>/`; downloading is optional for local viewing.
+## Direct browser video
 
-Direct browser capture uses bitrate hints, which browsers may vary. Master export renders exactly at `frameIndex/30`, so a slower computer cannot skip film frames. Prepared audio is muxed directly instead of recording a live audio stream.
+HD and 4K modes use MediaRecorder with bitrate targets rather than guaranteed bitrates. Keep the page visible during capture; leaving it finalizes a partial clip. Actual frame rate depends on the device. The local master path avoids this limitation.
 
-## Verified delivered files —2026-10-28
+Generated exports, audio and measurement data are ignored by Git. Do not commit them; README illustrations belong in `docs/images/`.
 
-- `artifacts/crescent-lake-4k-lossless.mkv`:1,750,974,990bytes;2160×3840;720frames;30fps;24.000000seconds;FFV1 RGB full-range plus48kHz stereo PCMfloat.
-- `artifacts/crescent-lake-4k.mp4`:101,486,776bytes;2160×3840;30fps;24.000000seconds;H.264/AAC stereo.
-- These friendly paths are hard links to the completed export, so they do not duplicate large file data.
-- Each of720decodedRGBA frame hashes matches its source render hash exactly. The PCM track contains1,152,000stereo frames, and both channels have equal first/last samples; peak−17.49dBFS. Evidence is in `artifacts/4k-validation.json`, `artifacts/master-framehash.txt` and the export manifest.
-
-FFV1 is defined in the [official FFmpeg specification](https://github.com/FFmpeg/FFV1). Bitrate-hint limitations are described by [MDN](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/videoBitsPerSecond).
+[FFV1 specification](https://github.com/FFmpeg/FFV1) · [MediaRecorder bitrate behavior](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/videoBitsPerSecond)

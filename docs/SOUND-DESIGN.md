@@ -1,44 +1,23 @@
-# Lake soundtrack: references and implementation
+# Sound design
 
-The first sketch was rejected for hard, piano-like attacks and simplistic note-by-note writing. The replacement uses a composed48-second cycle with returning motifs and controlled generative variation. Its first15seconds include a question, breathing spaces, a quiet answer and a harmonic change. Source and synthesis remain original code; no recordings or samples are imported.
+The soundtrack is an original Web Audio composition with no imported recordings or samples. Five roles provide depth: a warm harmonic bed, a continuous bowed/glass-like lead, lower wooden replies, a quiet air pulse and rounded bass.
 
-## Reading
+## Score
 
-- [Audio Engineering Patterns skill](https://github.com/4444j99/a-i--skills/blob/HEAD/skills/creative/audio-engineering-patterns/SKILL.md): useful as a mixing checklist for gain staging, frequency roles, dynamics and spatial depth. Read as a reference; no software or skill package was installed. No dedicated music-production skill was present in the local skill catalog.
-- [Cycling74: RNBO MIDI Synthesizer](https://rnbo.cycling74.com/learn/midi-synthesizer): polyphony, source/envelope/filter structure, and wet/dry reverb routing.
-- [Cycling74: Sound Processing Techniques](https://docs.cycling74.com/legacy/max7/vignettes/sound_processing_techniques_topic): processing-chain concepts and example patch families.
-- [Cycling74: gen~ and filtering](https://cycling74.com/tutorials/a-walk-around-the-block-an-introduction-to-gen~-and-filtering): filter block diagrams and sample-level signal flow.
-- [Tone.js Reverb](https://tonejs.github.io/docs/15.1.22/classes/Reverb.html): convolution, predelay and decay. Implementation uses native Web Audio; Tone.js is not a dependency.
+The 24-second film contains 14 full 6/8 bars at 70 BPM. Fmaj9, Am9, G6/9 and Cmaj9 enter at bars 0, 4, 8 and 12. Returning motifs and rests give the arrangement shape. Main layers enter within the first few seconds. Normal preview listening uses a longer 48-second score.
 
-## Decisions
+Each legato sentence shares an oscillator bank and one gain envelope. Internal pitches glide for 160–235 ms without retriggering amplitude. Bass roots and selected fifths follow the compound beat, with rounded attacks and restrained upper harmonics.
 
-The retained mood is warm and airy. The audible lead no longer has a percussive bell/pluck envelope. A240–380ms cosine onset moves into a sustained body and long release. Near-unison sine components and low-level filtered air create a bowed, breathing timbre. Upper harmonics remain quiet.
+## Space and looping
 
-Fmaj9, Am9, G6/9 and Cmaj9 share slowly moving upper voices. Adjacent voiced notes move no more than three semitones, including the loop seam. The main phrase and its reply occupy different registers and pan positions. Silence separates their gestures; the score does not fill every beat with a random scale note.
+The lead completes a left–right–left orbit every eight seconds in the film; lower replies use an opposing phase. Centered bass anchors the mix. Filtered echoes alternate between 480 ms and 570 ms delays, with early reflections and convolution reverb behind them.
 
-Separate sends control near/far layers. Early reflections, a short predelay, filtered long reverb and damped modulation delay provide depth. A gentle midrange dip and slow compression control accumulation. The export bus shares the live mix; clone audio tracks so finishing a capture does not end the live destination. Non-loop clips end with a two-second fade. The24-second loop has no fade.
+The shared synthesis graph renders three consecutive cycles offline. Extracting the settled middle cycle retains incoming pad and reverb tails. A short additive endpoint correction closes residual sample discontinuity without fading to silence. The master uses the original float PCM; the share copy receives correctly timed AAC.
 
-Tests verify score and signal-envelope invariants, not musical quality. Export metadata, decoding and level checks verify the generated audio exists and is technically valid. Listening judgment remains distinct from those checks.
+Audio initializes after user interaction. `prepareLoop()` renders silently, `playPreparedLoop()` starts the prepared cycle, and `getLoopWav()` exports stereo float32 WAV. Nodes, tracks and pending preparation are released on cancellation or disposal.
 
-## Final orchestration pass
+Tests verify timing, harmonic roles, legato envelopes, stereo curves and sample continuity. They do not measure subjective musical quality.
 
-Four roles enter in the first3.5seconds: warm bed at0, breathy glass lead at0.75, a lower wood-colored E–G reply at2.15, and a quiet breathing pulse at3.43seconds. Around5.75seconds a small upper color note adds lift; harmony changes at7seconds and the lower melodic answer enters around8.25seconds. The wood voice has110–145ms rounded attacks and faint damped modal partials; it is lower and quieter than the lead. The pulse uses low band-limited air and a small sine body. A70BPM compound6/8 grid contains pickups, omitted beats and entirely silent bars. This adds rhythmic shape without a hard drum loop or constant shaker.
+## References
 
-## Continuous legato
-
-The final lead uses one oscillator bank and one gain envelope for each multi-pitch sentence. Internal pitch changes hold the prior frequency then glide160–235ms to the next target; they do not retrigger the gain. Lead events live in `phrase.melody`, outside the per-note layer. The first C–E–D line runs about0.75–6.7seconds, with the lower A–C–B answer beginning around8.25seconds. The chord bed is29% stronger than the preceding sketch, the lead21% quieter, and the wood layer has fewer events with half the velocity and spatial send. This directly addresses the audible note-by-note attack rather than changing chord names.
-
-## Stereo and grounded rhythm — v0.4.1
-
-The accepted continuous high melody now makes a9-second left–right–left orbit; lower wooden replies use the opposite phase. Filtered echoes cross between480ms left and570ms right delays. Bass and air pulse remain centered; the capture destination explicitly has two channels.
-
-An experimental upper reed ornament was rejected and removed. The final additional instrument is a centered warm bass at MIDI41–55: root notes and selected fifths land exactly on the70BPM compound6/8 grid. Rounded55–65ms attacks and700Hz filtering keep the weight soft; second and third harmonics give it body on small speakers. Selected bars and secondary beats are left empty. The high legato line, chord progression and stereo orbit remain intact.
-
-
-## Twenty-four-second film loop — v0.5
-
-The loop score uses14 full6/8 bars at70BPM. Fmaj9, Am9, G6/9 and Cmaj9 enter at bars0,4,8and12; the closing B–D–C line resolves before the seam. The main accepted legato melody, centered rhythmic bass and original synth voices remain. No rejected upper reed returns. Stereo movement completes three8-second orbits.
-
-The same synthesis graph renders three consecutive cycles offline; the settled middle cycle retains incoming pad and reverb tails. A128-sample raised-cosine additive endpoint correction removes residual sample discontinuity without fading to silence. Preparation remains silent; preview listening retains its original48-second score. Live capture starts after a short audio-buffer pre-roll.
-
-`getLoopWav()` exports the original two-channel float32 PCM at the live output gain. This avoids the40–49ms of leading AAC padding observed in Arc MediaRecorder output. The final delivered MP4 copies the recorded video and encodes the WAV separately with FFmpeg, which writes correct priming metadata. The original browser export is retained alongside it. WAV sample identity is tested independently from musical quality; full encoded audio decoding verifies non-silent first/last windows and stereo movement.
+[Cycling74: MIDI synthesizer](https://rnbo.cycling74.com/learn/midi-synthesizer) · [Cycling74: filtering](https://cycling74.com/tutorials/a-walk-around-the-block-an-introduction-to-gen~-and-filtering) · [Tone.js reverb concepts](https://tonejs.github.io/docs/15.1.22/classes/Reverb.html)
