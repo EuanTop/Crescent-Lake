@@ -1,7 +1,7 @@
 """Create an original stylized mute swan, then export public/models/swan.glb.
 
-Reproduce from the project root:
-  /Applications/Blender.app/Contents/MacOS/Blender -b --python scripts/create_bird.py
+Reproduce from the project root with Blender on PATH:
+  blender --background --python scripts/create_bird.py
 
 Authoring axes: Blender Z up, bird faces -Y, water surface Z = 0.
 glTF axes: Y up, bird faces +Z, water surface Y = 0.
