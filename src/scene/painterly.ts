@@ -4,6 +4,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { SwanMaskPass } from "./swan-mask";
 import { visualStyles, type VisualStyleId } from "./styles";
 
 /** Sharp alternatives to the rejected smoothing-based painterly filter.
@@ -17,6 +18,7 @@ export function createPainterly(
 ) {
   const composer = new EffectComposer(renderer);
   const render = new RenderPass(scene, camera);
+  const swanMask = new SwanMaskPass(scene, camera);
   const style = new ShaderPass(
     new ShaderMaterial({
       name: "Illustration: sharp visual languages",
@@ -24,6 +26,7 @@ export function createPainterly(
       depthWrite: false,
       uniforms: {
         tDiffuse: { value: null },
+        uSwanMask: { value: swanMask.target.texture },
         uTexel: { value: new Vector2(1, 1) },
         uResolution: { value: new Vector2(1, 1) },
         uStrength: { value: 0.65 },
@@ -35,7 +38,7 @@ export function createPainterly(
       void main() { vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }
     `,
       fragmentShader: /* glsl */ `
-      uniform sampler2D tDiffuse;
+      uniform sampler2D tDiffuse, uSwanMask;
       uniform vec2 uTexel, uResolution;
       uniform float uStrength, uPixelRatio;
       uniform int uMode;
@@ -83,8 +86,18 @@ export function createPainterly(
         if(uMode==1) {
           float levels=mix(12.,5.,strength);
           vec3 poster=floor(c*levels+.5)/levels;
-          result=mix(c,poster,.7*strength);
-          result=mix(result,result*.36,edge*(.22+.43*strength));
+          vec2 inkStep=uTexel*uPixelRatio*.65;
+          float center=texture2D(uSwanMask,vUv).r;
+          float a=texture2D(uSwanMask,vUv+vec2(inkStep.x,0.)).r;
+          float b=texture2D(uSwanMask,vUv-vec2(inkStep.x,0.)).r;
+          float e=texture2D(uSwanMask,vUv+vec2(0.,inkStep.y)).r;
+          float f=texture2D(uSwanMask,vUv-vec2(0.,inkStep.y)).r;
+          float swanRegion=max(center,max(max(a,b),max(e,f)));
+          float silhouette=max(max(abs(center-a),abs(center-b)),max(abs(center-e),abs(center-f)));
+          // Preserve fine water marks in quiet areas; color bands stay strongest at forms.
+          result=mix(c,poster,mix(.20,.65,edge)*strength*(1.-swanRegion*.85));
+          float ink=edge*(1.-swanRegion)*(.10+.20*strength)+silhouette*(.14+.14*strength);
+          result=mix(result,result*.55,ink);
           float saturation=1.+strength*.12;
           result=mix(vec3(artLuma(result)),result,saturation);
         } else if(uMode==2) {
@@ -145,6 +158,7 @@ export function createPainterly(
   };
   const output = new OutputPass();
   composer.addPass(render);
+  composer.addPass(swanMask);
   composer.addPass(style);
   composer.addPass(output);
   let current: VisualStyleId = "cel";
@@ -162,6 +176,7 @@ export function createPainterly(
     setStyle(id: VisualStyleId) {
       if (!(id in visualStyles)) return;
       current = id;
+      swanMask.enabled = id === "cel";
       style.uniforms.uMode.value = visualStyles[id].mode;
     },
     setStrength(value: number) {
@@ -173,6 +188,7 @@ export function createPainterly(
       if (disposed) return;
       disposed = true;
       render.dispose();
+      swanMask.dispose();
       style.dispose();
       output.dispose();
       composer.dispose();

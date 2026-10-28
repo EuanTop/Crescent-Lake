@@ -757,3 +757,130 @@ h2 {
   padding-top: 0;
   margin-bottom: 23px;
 }
+
+/* Frame selection resizes this same canvas; there is no preview navigation. */
+.gallery[data-frame="portrait"] {
+  width: min(720px, 100%);
+  padding-inline: 35px;
+}
+.gallery[data-frame="portrait"] .edition {
+  display: none;
+}
+.gallery[data-frame="portrait"] .landscape {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 9 / 16;
+  min-height: 0;
+  max-height: none;
+}
+.gallery[data-frame="landscape"] .landscape {
+  height: auto;
+  aspect-ratio: 16 / 9;
+  min-height: 0;
+  max-height: none;
+}
+.gallery[data-frame="portrait"] .caption-aside {
+  display: none;
+}
+.video-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+.video-options select {
+  font: inherit;
+  color: inherit;
+  background: #f8f7ef;
+  border: 1px solid #cbd3ba;
+  border-radius: 5px;
+  padding: 7px;
+}
+.record-button {
+  width: 100%;
+  padding: 11px;
+  border: 1px solid #9baa88;
+  border-radius: 7px;
+  font-size: 11px;
+  background: #e6eadb;
+}
+.record-button:hover {
+  background: #dce4cf;
+}
+.export-note {
+  font-size: 9px;
+  color: #7c886e;
+  line-height: 1.6;
+  margin-top: 9px;
+}
+#record-progress {
+  width: 100%;
+  height: 5px;
+  margin-top: 12px;
+  accent-color: #7c9166;
+}
+@media (max-width: 760px) {
+  .gallery[data-frame="portrait"] {
+    padding-inline: 17px;
+  }
+}
+
+/* A screen-sized artwork, with all lettering baked into the canvas export. */
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+body {
+  background: #e9ebdf;
+}
+.gallery[data-frame] {
+  width: 100%;
+  height: 100dvh;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.gallery[data-frame] .landscape {
+  margin: 0;
+  flex: none;
+}
+.gallery[data-frame="portrait"] .landscape {
+  width: min(100vw, calc(100dvh * 9 / 16));
+  height: auto;
+  aspect-ratio: 9 / 16;
+}
+.gallery[data-frame="landscape"] .landscape {
+  width: min(100vw, calc(100dvh * 16 / 9));
+  height: auto;
+  aspect-ratio: 16 / 9;
+}
+.scene .render-source {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+.scene .artwork {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.panel-toggle {
+  top: 18px;
+  right: 18px;
+}
+body.is-recording .panel-toggle,
+body.is-recording .settings,
+body.is-recording .notice {
+  visibility: hidden;
+  pointer-events: none;
+}
+.settings {
+  scrollbar-width: none;
+}
+.settings::-webkit-scrollbar {
+  display: none;
+}

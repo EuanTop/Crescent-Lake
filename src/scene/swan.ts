@@ -1,5 +1,6 @@
 import { Euler, Group, MathUtils, Quaternion, Vector3 } from "three";
 import type { Object3D } from "three";
+import { clampMotionStrength } from "./motion.ts";
 
 export interface SwanMotion {
   update(time: number, activity: number): void;
@@ -57,21 +58,39 @@ export function createSwanMotion(model: Object3D): SwanMotion {
   const angles = new Euler();
   const scaled = new Vector3();
 
+  let lastTime: number | undefined;
+  let extraGesturePhase = 0;
   const motion: SwanMotion = {
     update(time, activity) {
-      const t = Number.isFinite(time) ? Math.max(0, time) : 0;
-      const a = Number.isFinite(activity) ? MathUtils.clamp(activity, 0, 1) : 0;
+      const now = Number.isFinite(time) ? Math.max(0, time) : (lastTime ?? 0);
+      const strength = clampMotionStrength(activity);
+      if (lastTime !== undefined) {
+        if (now < lastTime) extraGesturePhase = 0;
+        else extraGesturePhase += (now - lastTime) * Math.max(0, strength - 1) * 0.55;
+      }
+      lastTime = now;
+      // Integrate only the extra speed, preserving original 0–100% timings
+      // while avoiding a phase jump when the activity slider changes.
+      const t = now + extraGesturePhase;
+      const a = strength <= 1 ? strength : 1 + (strength - 1) * 0.45;
+      const wingAmplitude = strength <= 1 ? strength : 1 + (strength - 1) * 1.6;
       const breath = Math.sin(t * 1.18) * a;
-      const stretch = gesture(t, 31, 17, 4.8) * a;
-      const flutter = gesture(t, 13, 5.6, 1.35) * a;
+      const stretchEnvelope = gesture(t, 31, 17, 4.8);
+      const stretch = stretchEnvelope * a;
+      const wingStretch = stretchEnvelope * wingAmplitude;
+      const flutter = gesture(t, 13, 5.6, 1.35) * wingAmplitude;
       const beat = Math.sin((t - 5.6) * 13.4);
 
       for (const { pivot, sign } of wings) {
         // Both wings lift together, with a tiny asymmetry rather than a flying
-        // stroke. Maximum opening is under nine degrees at full activity.
-        const settle = Math.sin(t * 1.18 + sign * 0.18) * 0.004 * a;
-        const opening =
-          stretch * 0.105 + flutter * (0.02 + beat * 0.025) + settle;
+        // stroke. The extra range is capped at seventeen degrees; body and
+        // shoulder offsets remain much subtler than the added feather lift.
+        const settle = Math.sin(t * 1.18 + sign * 0.18) * 0.004 * wingAmplitude;
+        const opening = MathUtils.clamp(
+          wingStretch * 0.105 + flutter * (0.02 + beat * 0.025) + settle,
+          -MathUtils.degToRad(17),
+          MathUtils.degToRad(17),
+        );
         pivot.rotation.set(
           -stretch * 0.013,
           sign * stretch * 0.014,

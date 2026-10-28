@@ -13,13 +13,7 @@ npm ci
 npm run dev
 ```
 
-For social-video testing, open `/review.html` on the local server. It contains the actual page in a fixed 9:16 iframe viewport, so the scene, camera and controls are tested in portrait regardless of the surrounding browser window.
-
-For a fixed preview address:
-
-```sh
-npm run dev -- --port 5187 --strictPort
-```
+Open the existing local address, normally `http://127.0.0.1:5173/`. The page starts as a screen-fitting 9:16 artwork with no page scrolling. **Frame** in the settings panel switches the same canvas in place. `/review.html` is only a compatibility redirect to this page; it no longer contains an iframe or engineering labels.
 
 Validate and build:
 
@@ -33,37 +27,46 @@ The static build is written to `dist/`, which is ignored by Git. WebGL 2 is requ
 
 ## Scene settings
 
-Open the **=** button at the right edge. Close with the × button, Escape, or a click outside. Hidden controls are removed from keyboard navigation. The panel fits narrow screens and scrolls independently when needed.
+Open the **=** button at the right edge. Close with the × button, Escape, or a click outside. Hidden controls are removed from keyboard navigation. The panel fits narrow screens and remains independently scrollable with its scrollbar concealed. The artwork never scrolls.
 
 - **Color story**: Soft Sage retains the original painted palette; Blue Reverie adds cobalt water and cool vegetation; Wild River adds olive water and a verdant shore. Water, reflections, grass, trees, rocks and shoreline change together.
 - **Light**: Morning or Golden hour, with a smooth change of light and shadow direction.
 - **Visual language**: choose Original, Cel Illustration, Watercolor, Risograph, Copperplate, Pixel Story or Cyanotype. Six distinct shader approaches preserve sharp contours; Effect strength adjusts their intensity. See [algorithm and design notes](docs/PAINTERLY.md).
-- **Wind strength**: controls traveling gusts, grass-tip flutter and water ripples. Still removes all grass displacement; Windy makes grass gusts and moving directional lake bands clearly visible.
-- **Swan movement**: adjusts gentle breathing, wing settling and occasional stretches.
+- **Wind strength**: controls traveling gusts, grass-tip flutter and water ripples. Defaults to the former maximum (100%), with an extended 0–200% range. Still removes grass displacement and wind wavelets; stronger settings add gusts and broad, slow changes in water light and reflected shapes. Long, translucent curved wavefronts travel across the whole lake. Their spacing is organically warped and their contrast interrupted; wind increases their movement and visibility while broad reflections remain readable.
+- **Swan movement**: adjusts breathing, wing settling and occasional stretches. Defaults to 100%; the extended 200% setting increases gesture frequency and lift without exceeding bounded articulation.
 - **Passing overhead**: independently show or hide drifting clouds and flying birds.
 - **Pause / Resume**: freezes the swan, grass, clouds, birds, water and wakes together. Settings remain adjustable. Repeated drawing stops once the scene is stable.
-- **Save image**: exports a PNG of the current three-dimensional scene, without page text or controls.
+- **Save image**: exports the composed artwork as a PNG, including its title, seasonal note, paper framing and closing line. Controls are excluded.
 
-On narrow screens, the artwork itself uses a 9:16 portrait aspect ratio for social-video review.
+- **Frame**: Portrait 9:16 or Landscape 16:9, applied directly without navigation or a different server.
+- **Soundtrack**: an original48-second arrangement of breathing sustained tones, extended harmonies and quiet answering phrases. Play/Pause controls listening; Include music in video is enabled by default. No music files or third-party samples are used. See [sound design and reading](docs/SOUND-DESIGN.md).
+- **Export video**: choose 5, 10, 15 (default), 20, 30 or 60 seconds. Portrait exports at 1080 × 1920; landscape at 1920 × 1080. Capture requests 30 fps; actual frame rate depends on the GPU and browser. MP4/H.264 with AAC is preferred when available, otherwise WebM with the supported encoder. The filename follows the actual container.
+
+During recording, the entire control interface hides and the scene plays even if previously paused. Press **Escape** to stop early and save the partial clip. After export, the previous playback state and display resolution return. Recording includes the complete artwork and optional music, with a two-second music fade at the selected end. Browser chrome and engineering text are never part of the captured canvas. Keep the page visible; switching away finalizes the clip early.
 
 The system's reduced-motion preference starts the scene paused. Playback can still be started manually.
 
 ## Implementation
 
-| File                      | Responsibility                                                     |
-| ------------------------- | ------------------------------------------------------------------ |
-| `src/scene/world.ts`      | Camera, lighting, model loading, swimming route and lifecycle      |
-| `src/scene/palettes.ts`   | Three named color stories and lake colors                          |
-| `src/scene/materials.ts`  | Four-band painted lighting and shadows                             |
-| `src/scene/painterly.ts`  | Six sharp post-processing treatments and output conversion         |
-| `src/scene/styles.ts`     | Filter names and algorithm metadata                                |
-| `src/scene/water.ts`      | Planar reflection, procedural ripples and world-space wakes        |
-| `src/scene/landscape.ts`  | Irregular shore, trees, curved instanced grass and traveling gusts |
-| `src/scene/swan.ts`       | Wing articulation, breathing and stretching                        |
-| `src/scene/atmosphere.ts` | Procedural clouds and flapping bird silhouettes                    |
-| `src/scene/motion.ts`     | Frame-rate-independent travel and bounded wake history             |
-| `scripts/create_bird.py`  | Reproducible Blender model generator                               |
-| `public/models/swan.glb`  | Self-contained swan asset; Blender is not needed to run the page   |
+| File                        | Responsibility                                                     |
+| --------------------------- | ------------------------------------------------------------------ |
+| `src/scene/world.ts`        | Camera, lighting, model loading, swimming route and lifecycle      |
+| `src/scene/palettes.ts`     | Three named color stories and lake colors                          |
+| `src/scene/materials.ts`    | Four-band painted lighting and shadows                             |
+| `src/scene/painterly.ts`    | Six sharp post-processing treatments and output conversion         |
+| `src/scene/recording.ts`    | Video/audio capture, encoder fallback, downloads and cleanup       |
+| `src/scene/music.ts`        | Original generative Web Audio score and synthesizer                |
+| `src/scene/presentation.ts` | Shared artwork typography and paper framing for display and export |
+| `src/scene/framing.ts`      | Portrait composition and camera bounds                             |
+| `src/scene/swan-mask.ts`    | Silhouette-only swan ink mask, excluding feather overlaps          |
+| `src/scene/styles.ts`       | Filter names and algorithm metadata                                |
+| `src/scene/water.ts`        | Planar reflection, procedural ripples and world-space wakes        |
+| `src/scene/landscape.ts`    | Irregular shore, trees, curved instanced grass and traveling gusts |
+| `src/scene/swan.ts`         | Wing articulation, breathing and stretching                        |
+| `src/scene/atmosphere.ts`   | Procedural clouds and flapping bird silhouettes                    |
+| `src/scene/motion.ts`       | Frame-rate-independent travel and bounded wake history             |
+| `scripts/create_bird.py`    | Reproducible Blender model generator                               |
+| `public/models/swan.glb`    | Self-contained swan asset; Blender is not needed to run the page   |
 
 Built with Three.js, TypeScript, Vite and custom GLSL; exact versions are locked. No runtime React dependency.
 

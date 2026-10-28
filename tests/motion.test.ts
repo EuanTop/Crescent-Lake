@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   advanceDistance,
   advanceWindPhase,
+  clampMotionStrength,
+  windResponse,
   WAKE_CAPACITY,
   WAKE_INTERVAL,
   WAKE_LIFETIME,
@@ -128,4 +130,72 @@ test("wind travels visibly at full strength, freezes at zero, and never jumps wh
     return phase;
   };
   assert.ok(Math.abs(integrate(30) - integrate(120)) < 1e-10);
+});
+
+
+test("0–100% wind preserves its original equations, and 100–200% is stronger but bounded", () => {
+  for (let step = 0; step <= 100; step++) {
+    const strength = step / 100;
+    const response = windResponse(strength);
+    assert.equal(response.strength, strength);
+    assert.equal(response.amplitude, strength);
+    assert.equal(response.detail, strength * strength);
+    assert.equal(response.grassBend, strength * (0.38 + 0.45 * strength));
+    assert.equal(response.gustSpeed, 1);
+    assert.equal(
+      advanceWindPhase(3, 0.25, strength),
+      3 + 0.25 * (0.16 * strength + 0.88 * strength * strength),
+    );
+  }
+  const original = windResponse(1);
+  const strong = windResponse(2);
+  assert.equal(strong.strength, 2);
+  assert.ok(strong.amplitude > original.amplitude);
+  assert.ok(strong.detail > original.detail);
+  assert.ok(strong.grassBend > original.grassBend);
+  assert.ok(strong.gustSpeed > original.gustSpeed);
+  assert.ok(strong.amplitude <= 1.5);
+  assert.ok(strong.detail <= 1.65);
+  assert.ok(strong.grassBend <= original.grassBend * 1.35);
+
+  for (let step = 0; step <= 200; step++) {
+    const strength = step / 100;
+    const response = windResponse(strength);
+    assert.ok(Object.values(response).every(Number.isFinite));
+    // Maximum possible crest + fine-detail mixture remains interpolation,
+    // never an extrapolation that clips into neon white or negative shadows.
+    const peakHighlightMix = (0.56 * response.amplitude + 0.52 * response.detail) * 0.45;
+    assert.ok(peakHighlightMix >= 0 && peakHighlightMix < 0.78);
+    assert.ok(response.amplitude * 0.2 <= 0.3 + 1e-12);
+    assert.equal(advanceWindPhase(9, 0, strength), 9);
+  }
+  assert.deepEqual(windResponse(20), strong);
+  assert.deepEqual(windResponse(-1), windResponse(0));
+  for (const invalid of [NaN, Infinity, -Infinity]) {
+    assert.equal(clampMotionStrength(invalid), 0);
+    assert.deepEqual(windResponse(invalid), windResponse(0));
+  }
+});
+
+test("extended wind keeps integrated phase continuous and frame-rate independent across 0–200%", () => {
+  let phase = 8;
+  for (const strength of [0, 0.3, 1, 1.2, 2, 0, 1.8]) {
+    assert.equal(advanceWindPhase(phase, 0, strength), phase);
+    const next = advanceWindPhase(phase, 0.1, strength);
+    assert.ok(Number.isFinite(next) && next >= phase);
+    assert.ok(next - phase <= 0.19 + 1e-12);
+    phase = next;
+  }
+  assert.ok(advanceWindPhase(0, 1, 2) > advanceWindPhase(0, 1, 1));
+  const integrate = (fps: number): number => {
+    let result = 0;
+    for (let frame = 0; frame < fps * 8; frame++) {
+      const t = frame / fps;
+      result = advanceWindPhase(result, 1 / fps, t < 2 ? 0 : t < 4 ? 1 : t < 6 ? 2 : 0.4);
+    }
+    return result;
+  };
+  assert.ok(Math.abs(integrate(30) - integrate(120)) < 1e-10);
+  assert.equal(advanceWindPhase(5, Infinity, 2), 5);
+  assert.equal(advanceWindPhase(5, 1, Infinity), 5);
 });

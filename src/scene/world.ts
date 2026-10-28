@@ -17,18 +17,22 @@ import {
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createLandscape } from "./landscape";
 import { createToonMaterial, updatePaletteLighting } from "./materials";
-import { advanceDistance } from "./motion";
+import { advanceDistance, clampMotionStrength } from "./motion";
 import { createWater } from "./water";
 import { palettes, type PaletteId } from "./palettes";
 import { createSwanMotion } from "./swan";
 import { createAtmosphere } from "./atmosphere";
 import { createPainterly } from "./painterly";
+import { paintPresentation } from "./presentation";
+import { frameLake } from "./framing";
+import { createVideoRecorder, type RecordingState } from "./recording";
 import type { VisualStyleId } from "./styles";
 
 export interface WorldOptions {
   onReady(): void;
   onError(message: string): void;
   onFrame?(time: number): void;
+  onRecording?(state: RecordingState, elapsed: number): void;
 }
 
 export async function createWorld(
@@ -65,15 +69,19 @@ export async function createWorld(
     "aria-label",
     "An illustrated lake with a white swan, a wind-swept grassy shore, passing clouds and flying birds.",
   );
-  container.append(renderer.domElement);
+  renderer.domElement.className = "render-source";
+  const artwork = document.createElement("canvas");
+  artwork.className = "artwork";
+  artwork.setAttribute("role", "img");
+  artwork.setAttribute(
+    "aria-label",
+    renderer.domElement.getAttribute("aria-label")!,
+  );
+  container.append(renderer.domElement, artwork);
 
   const scene = new Scene();
   scene.background = new Color("#d7e2cd");
   const camera = new OrthographicCamera(-12, 12, 8.5, -8.5, 0.1, 100);
-  const cameraTarget = new Vector3(-0.5, 0, -0.3);
-  const basePosition = new Vector3(12, 17, 22);
-  camera.position.copy(basePosition);
-  camera.lookAt(cameraTarget);
 
   const sun = new DirectionalLight("#fff1d3", 2);
   sun.position.set(-5, 9, 5);
@@ -129,7 +137,8 @@ export async function createWorld(
             : birdMaterials.body;
       source.dispose();
       object.castShadow = true;
-      object.receiveShadow = true;
+      object.receiveShadow = false;
+      object.layers.enable(1);
     });
     bird.add(gltf.scene);
     swanMotion = createSwanMotion(gltf.scene);
@@ -165,8 +174,8 @@ export async function createWorld(
   let elapsed = 0;
   let lastStamp = 0;
   let paused = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let wind = 0.55;
-  let activity = 0.65;
+  let wind = 1;
+  let activity = 1;
   let warmth = 0;
   let targetWarmth = 0;
   let lastReadout = -1;
@@ -177,6 +186,10 @@ export async function createWorld(
   const morningSun = new Vector3(-5, 9, 5);
   const eveningSun = new Vector3(-10, 4.7, 4.1);
   const painting = createPainterly(renderer, scene, camera);
+  const recorder = createVideoRecorder(artwork, {
+    onState: options.onRecording,
+  });
+  let recording = false;
   let currentStyle: VisualStyleId = "cel";
   const position = new Vector3();
   const tangent = new Vector3();
@@ -184,17 +197,14 @@ export async function createWorld(
 
   function resize() {
     needsRender = true;
+    if (recording || disposed) return;
     const { width, height } = container.getBoundingClientRect();
     if (width < 1 || height < 1) return;
     renderer.setSize(width, height, false);
+    artwork.width = renderer.domElement.width;
+    artwork.height = renderer.domElement.height;
     painting.resize(width, height);
-    const aspect = width / height;
-    const halfHeight = aspect < 0.9 ? 9.6 : 8.7;
-    camera.left = -halfHeight * aspect;
-    camera.right = halfHeight * aspect;
-    camera.top = halfHeight;
-    camera.bottom = -halfHeight;
-    camera.updateProjectionMatrix();
+    frameLake(camera, width / height);
   }
   const observer = new ResizeObserver(resize);
   observer.observe(container);
@@ -229,6 +239,7 @@ export async function createWorld(
       .lerp(eveningBackground, warmth);
     sun.position.copy(morningSun).lerp(eveningSun, warmth);
     painting.render();
+    paintPresentation(artwork, renderer.domElement, targetWarmth > 0.5);
     needsRender = false;
     if (Math.floor(elapsed) !== lastReadout) {
       lastReadout = Math.floor(elapsed);
@@ -277,7 +288,7 @@ export async function createWorld(
       needsRender = true;
     },
     setActivity(value: number) {
-      activity = Math.min(1, Math.max(0, value));
+      activity = clampMotionStrength(value);
       needsRender = true;
     },
     setClouds(visible: boolean) {
@@ -289,17 +300,64 @@ export async function createWorld(
       needsRender = true;
     },
     setWind(value: number) {
-      wind = Math.min(1, Math.max(0, value));
+      wind = clampMotionStrength(value);
       needsRender = true;
     },
     setWarmth(value: number) {
       targetWarmth = value;
       needsRender = true;
     },
+    get videoSupported() {
+      return recorder.supported;
+    },
+    get videoFormat() {
+      return recorder.format;
+    },
+    stopVideo() {
+      recorder.stop();
+    },
+    async recordVideo(duration: number, audio?: MediaStream | null) {
+      if (recording) throw new Error("A video is already being recorded.");
+      if (!recorder.supported)
+        throw new Error("Video export is unavailable in this browser.");
+      const wasPaused = paused;
+      const pixelRatio = renderer.getPixelRatio();
+      const aspect = container.clientWidth / container.clientHeight;
+      const width = aspect < 0.9 ? 1080 : 1920;
+      const height = aspect < 0.9 ? 1920 : 1080;
+      recording = true;
+      try {
+        paused = false;
+        lastStamp = performance.now();
+        renderer.setPixelRatio(1);
+        renderer.setSize(width, height, false);
+        artwork.width = width;
+        artwork.height = height;
+        painting.resize(width, height);
+        frameLake(camera, width / height);
+        needsRender = true;
+        painting.render();
+        paintPresentation(artwork, renderer.domElement, targetWarmth > 0.5);
+        await recorder.start(
+          duration,
+          `crescent-lake-${currentStyle}-${width}x${height}`,
+          audio,
+        );
+      } finally {
+        recording = false;
+        paused = wasPaused;
+        if (!disposed) {
+          renderer.setPixelRatio(pixelRatio);
+          resize();
+          lastStamp = performance.now();
+        }
+      }
+    },
     async saveImage() {
       painting.render();
+      paintPresentation(artwork, renderer.domElement, targetWarmth > 0.5);
       const blob = await new Promise<Blob | null>((resolve) =>
-        renderer.domElement.toBlob(resolve, "image/png"),
+        artwork.toBlob(resolve, "image/png"),
       );
       if (!blob) throw new Error("Could not export the lake image");
       const url = URL.createObjectURL(blob);
@@ -312,6 +370,7 @@ export async function createWorld(
     dispose() {
       if (disposed) return;
       disposed = true;
+      recorder.dispose();
       renderer.setAnimationLoop(null);
       observer.disconnect();
       renderer.domElement.removeEventListener(
@@ -331,6 +390,7 @@ export async function createWorld(
       );
       renderer.dispose();
       renderer.domElement.remove();
+      artwork.remove();
     },
   };
 }

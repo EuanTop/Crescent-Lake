@@ -35,6 +35,32 @@ export function wakeStrength(age: number): number {
   );
 }
 
+/** UI strengths retain their original 0–1 scale and extend safely to 200%. */
+export function clampMotionStrength(value: number): number {
+  return Number.isFinite(value) ? Math.min(2, Math.max(0, value)) : 0;
+}
+
+/** Extra strength adds energy without squaring the whole extended range. */
+export function windResponse(wind: number): {
+  strength: number;
+  amplitude: number;
+  detail: number;
+  grassBend: number;
+  gustSpeed: number;
+} {
+  const strength = clampMotionStrength(wind);
+  const extra = Math.max(0, strength - 1);
+  return {
+    strength,
+    amplitude: strength <= 1 ? strength : 1 + extra * 0.5,
+    detail: strength <= 1 ? strength * strength : 1 + extra * 0.65,
+    grassBend: strength <= 1
+      ? strength * (0.38 + 0.45 * strength)
+      : 0.83 * (1 + extra * 0.35),
+    gustSpeed: 1 + extra * 0.55,
+  };
+}
+
 /** Integrate traveling wind phase: a slider change changes velocity, not phase. */
 export function advanceWindPhase(
   phase: number,
@@ -43,8 +69,11 @@ export function advanceWindPhase(
 ): number {
   const current = Number.isFinite(phase) ? phase : 0;
   if (!Number.isFinite(dt) || dt <= 0) return current;
-  const strength = Number.isFinite(wind) ? Math.min(1, Math.max(0, wind)) : 0;
-  const next = current + dt * (0.16 * strength + 0.88 * strength * strength);
+  const strength = clampMotionStrength(wind);
+  const velocity = strength <= 1
+    ? 0.16 * strength + 0.88 * strength * strength
+    : 1.04 + (strength - 1) * 0.86;
+  const next = current + dt * velocity;
   return Number.isFinite(next) ? next : current;
 }
 

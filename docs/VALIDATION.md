@@ -1,5 +1,14 @@
 # Validation
 
+## Social-video artwork — 2026-10-28 (v0.4)
+
+- Reused the user’s existing `127.0.0.1:5173` server; no additional dev server was started. Arc native UI confirmed in-panel Portrait 9:16, music controls, 15-second duration, MP4 export and 100% motion defaults.
+- The page fits its viewport without scrolling. All visual review uses the 9:16 artwork. Legacy `/review.html` redirects to the main page, with no review iframe or engineering labels.
+- An actual browser-generated 15.002-second MP4 was downloaded and inspected with ffprobe/ffmpeg: H.264 video, 1080 × 1920, approximately29.5–29.9 actual frames/second, AAC stereo48kHz. Full audio decode passed, with non-silent audio and no clipping (initial sample peak−17.5dBFS). Later15.000- and15.006-second samples verify the final lake-wide water treatment, early music entries and continuous legato. The latter has29.94fps H.264, AAC stereo, audio peak−19.4dBFS and mean−32.2dBFS. A decoded video frame verifies artwork title, seasonal note, footer line and clean canvas without controls.
+- Cel swan masking and self-shadow changes render successfully. Mirror-water treatment combines broad reflection swells with soft lake-wide, organically curved wavefronts. The original bold bands, dense fine texture and local Wi-Fi-like arc packets were rejected and removed.
+- Thirty-five automated tests cover real GLB route bounds in portrait, increased upper-left bank coverage, mask state restoration on success and failure, 0–200% motion continuity/bounds, generated music score and lazy initialization, encoder fallback/final chunks/errors/cancellation, and cloned audio-track cleanup.
+- Recording hides the panel and toggle, bakes authored typography into the exported canvas, restores prior pause state/resolution, and fades included music over the selected final two seconds. Capture is real time, so slower hardware may produce a lower frame rate.
+
 ## Portrait visual languages — 2026-10-28
 
 - All later visual review uses a live 9:16 iframe viewport in `/review.html`; narrow-screen artwork also uses 9:16. No horizontal scene comparison is used for the final six-style review.

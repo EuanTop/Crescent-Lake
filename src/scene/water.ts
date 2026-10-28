@@ -14,6 +14,7 @@ import {
   WAKE_LIFETIME,
   WakeHistory,
   wakeStrength,
+  windResponse,
 } from "./motion";
 
 export function createWater() {
@@ -75,36 +76,44 @@ export function createWater() {
           vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
           return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)),f.x),f.y);
         }
+        // Value noise with its analytic gradient: two moving scales can light
+        // local water slopes without imposing any periodic, lake-wide stripes.
+        vec3 noiseGradient(vec2 p) {
+          vec2 i = floor(p),f = fract(p);
+          vec2 u = f*f*(3.0-2.0*f),du = 6.0*f*(1.0-f);
+          float a = hash(i),b = hash(i+vec2(1,0));
+          float c = hash(i+vec2(0,1)),d = hash(i+vec2(1,1));
+          float value = mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
+          vec2 gradient = du*vec2(mix(b-a,d-c,u.y),mix(c-a,d-b,u.x));
+          return vec3(value,gradient);
+        }
         void main() {
           vec2 p = vWorld.xz;
-          // Coherent wind from the upper-left bank toward open water. All
-          // traveling fields use an integrated clock, independent of amplitude.
-          vec2 flow = normalize(vec2(0.84, 0.54));
-          vec2 acrossFlow = vec2(-flow.y, flow.x);
-          float along = dot(p, flow);
-          float across = dot(p, acrossFlow);
+          vec2 flow = normalize(vec2(0.84,0.54));
           float phase = uWindPhase;
-          float n = noise(p * 0.31);
-          float gust = smoothstep(0.20, 0.78,
-            noise(vec2(along * 0.22 - phase * 0.12, across * 0.19)));
-          float gustEnvelope = 0.33 + gust * 0.67;
-          float bend = sin(across * 0.71) * 0.46 + (n - 0.5) * 0.7;
-          float wave = sin(along * 5.4 - phase * 5.4 + bend);
-          float fineWave = sin(along * 10.7 - phase * 9.5 + sin(across * 1.4) * 0.55);
-          float crests = smoothstep(0.67, 0.99, wave) * gustEnvelope;
-          // A finer, elongated noise field follows the same moving flow rather
-          // than scattering stationary glitter dots over the surface.
-          float streaks = smoothstep(0.68, 0.89,
-            noise(vec2(along * 0.64 - phase * 0.47, across * 6.3)));
-          float detail = smoothstep(0.80, 0.995, fineWave) * (0.25 + gust * 0.75);
-          // Fine scales emerge more strongly in fresh wind without changing
-          // their spatial frequency (which would jump the texture's phase).
-          float fineStrength = uWind * uWind;
-          float windLight = crests * 0.56 * uWind
-            + (streaks * 0.28 + detail * 0.24) * fineStrength;
-          float windDark = smoothstep(0.30, 0.94, -wave) * gustEnvelope * uWind;
-          vec2 distortion = (flow * wave + acrossFlow * fineWave * 0.38)
-            * (0.0007 + uWind * 0.0031) * uWind * gustEnvelope;
+          float n = noise(p*0.31);
+          // A mirror lake moves in broad swells, not a layer of small ink marks.
+          // Two slow, low-frequency fields bend reflected shapes continuously.
+          vec2 drift = p-flow*phase*0.43;
+          vec2 warp = vec2(noise(p*.12+vec2(9.3,2.8)),noise(p*.14+vec2(1.2,7.6)))-.5;
+          vec3 swell = noiseGradient(drift*vec2(.23,.32)+warp*.35);
+          vec3 crossSwell = noiseGradient(p*vec2(.17,.21)+vec2(17.3,9.1)+vec2(.09,-.12)*phase);
+          vec2 slope = swell.yz*.72+crossSwell.yz*.28;
+          float localLight = clamp(dot(slope,normalize(vec2(-.57,.82))),-1.,1.);
+          float windShade = localLight*uWind*.045;
+          // No ridge thresholds, fine noise, foam or repeating stripe pattern.
+          vec2 distortion = slope*uWind*.0055;
+          // Lake-wide connected wavefronts: a handful of long, translucent
+          // curves, with organic spacing and interruptions rather than Wi-Fi arcs.
+          float across=dot(p,vec2(-flow.y,flow.x));
+          float wavePhase=dot(p,flow)*2.45-phase*.72
+            +noise(p*.19+vec2(3.8,7.2)+phase*.018)*2.3
+            +sin(across*.42+phase*.09)*.48;
+          float crest=pow(.5+.5*sin(wavePhase),18.);
+          float crestShadow=pow(.5+.5*sin(wavePhase-.36),14.);
+          float opening=smoothstep(.23,.67,noise(p*.28-flow*phase*.035+vec2(9.2,2.4)));
+          float waterRidge=crest*(.25+.75*opening)*uWind;
+          float waterTrough=crestShadow*(.25+.75*opening)*uWind;
           float wakeLight = 0.0;
           float wakeDark = 0.0;
           for (int i = 0; i < ${WAKE_CAPACITY}; i++) {
@@ -147,20 +156,20 @@ export function createWater() {
           // Broad transparent washes, kept intentionally quieter than the bird.
           vec3 deep = uDeep;
           vec3 pale = uPale;
-          vec3 col = mix(deep, pale, smoothstep(0.1, 0.9, n) * 0.73);
-          col += sin(p.y*0.19 + p.x*0.13) * 0.018;
+          vec3 col = mix(deep, pale, smoothstep(0.1, 0.9, n) * 0.25);
+          col += sin(p.y*0.19 + p.x*0.13) * 0.006;
           float reflectionGuard = exp(-dot((p-uBird)/vec2(1.1,1.6),(p-uBird)/vec2(1.1,1.6)));
           vec4 reflectedUv = vReflection;
           reflectedUv.xy += distortion * mix(1.0, 0.24, reflectionGuard) * reflectedUv.w;
           vec3 reflection = texture2DProj(tDiffuse, reflectedUv).rgb;
           // Reflection is mixed into the water wash, never a polished mirror.
           col = mix(col, reflection * uReflectionTint, uReflection);
-          // Wind creates a clear light/dark rhythm and moving gust patches in
-          // every palette, with no wind-driven animation at strength zero.
-          float rippleVisibility = mix(1.0, 0.38, reflectionGuard);
-          col *= 1.0 - windDark * 0.20 * rippleVisibility;
-          vec3 rippleColor = mix(uPale, vec3(0.94, 0.96, 0.90), 0.28);
-          col = mix(col, rippleColor, windLight * 0.45 * rippleVisibility);
+          // Restrained wide light shifts retain large uninterrupted reflections.
+          float rippleVisibility = mix(1.0,0.5,reflectionGuard);
+          col *= 1.0+windShade*rippleVisibility;
+          col*=1.-waterTrough*.022*rippleVisibility;
+          vec3 waterLight=mix(uPale,vec3(.95,.97,.92),.12);
+          col=mix(col,waterLight,waterRidge*.15*rippleVisibility);
           col *= 1.0 - wakeDark * 0.23;
           vec3 wakeColor = mix(uPale, vec3(0.98, 0.99, 0.94), 0.58);
           col = mix(col, wakeColor, wakeLight * 0.57);
@@ -193,20 +202,18 @@ export function createWater() {
       tailZ: number,
     ) {
       const now = Number.isFinite(time) ? Math.max(0, time) : (lastTime ?? 0);
-      const strength = Number.isFinite(wind)
-        ? Math.min(1, Math.max(0, wind))
-        : 0;
+      const response = windResponse(wind);
       if (lastTime !== undefined && now < lastTime) windPhase = 0;
       windPhase = advanceWindPhase(
         windPhase,
         lastTime === undefined ? 0 : now - lastTime,
-        strength,
+        response.strength,
       );
       lastTime = now;
       history.sample(now, tailX, tailZ);
       material.uniforms.uTime.value = now;
       material.uniforms.uWindPhase.value = windPhase;
-      material.uniforms.uWind.value = strength;
+      material.uniforms.uWind.value = response.amplitude;
       material.uniforms.uWarmth.value = warmth;
       if (Number.isFinite(x) && Number.isFinite(z))
         material.uniforms.uBird.value.set(x, z);

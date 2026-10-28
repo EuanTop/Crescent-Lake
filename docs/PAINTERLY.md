@@ -30,8 +30,14 @@ No third-party shader source or image assets are copied into these treatments. W
 
 ## Scene corrections carried forward
 
-Wind drives directional moving wave bands, broad gust patches and finer crests. The integrated phase does not jump when the strength slider changes; zero wind stops wind-driven marks while swimming can still create wakes.
+Wind now drives broad, low-frequency swells in surface light and reflection coordinates, without directional bands or fine crest textures. The integrated phase does not jump when the strength slider changes; zero wind stops wind-driven marks while swimming can still create wakes.
 
 Wakes persist 22 seconds, sampled every 0.4 seconds into a 64-point history. After 14 seconds they fade smoothly. Historical points retain world positions and headings through turns. Recent points also form a short V-shaped wake. CPU fade calculation and distance-based fragment rejection bound the work.
 
 Low grass covers the entire bank in frustum-culled tiles. Taller near-shore tufts taper into it, and grass roots follow ground height. This fixes the previous rectangular and diagonal coverage boundaries.
+
+## Cel refinement — v0.4
+
+Cel uses a separate antialiased swan silhouette target. All swan meshes render white on layer 1; the mask pass restores renderer, camera and scene state in `finally`. Inside this mask, RGB Sobel edges are suppressed, so overlapping feathers no longer acquire additional ink. A thinner, lighter mask boundary retains the outside shape. The swan casts shadows but does not receive its own shadow, avoiding fine overlapping feather shadow artifacts. Quiet color areas use less posterization so small water marks survive. There is no blur pass.
+
+The final water language returns to lake-wide wavefronts after the user rejected both fine texture and isolated wake-like arc packets. Low-frequency domain warping bends long, sparse wavefronts and varies their spacing; a slowly moving coarse envelope softens their continuity. A narrow smooth crest and an offset, very faint shadow suggest ripples without the original bold stripe field. Maximum wind highlight blend is22.5%, using a color close to the water palette, not white. Broad low-frequency fields also bend reflections. There are no local ring centres, dense microtexture, foam or blur. Typography and paper framing are drawn by the final presentation canvas, identically for preview, PNG and video.

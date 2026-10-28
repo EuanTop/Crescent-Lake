@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { createToonMaterial } from "./materials";
+import { windResponse } from "./motion";
 
 /** A quiet, planted bank. All scenery is geometry; no image assets are used. */
 export function createLandscape(): {
@@ -192,6 +193,7 @@ export function createLandscape(): {
       uniforms: {
         uTime: { value: 0 },
         uWind: { value: 0.35 },
+        uBendAmplitude: { value: 0.188125 },
         uGrassLowA: { value: new THREE.Color().setRGB(0.12, 0.23, 0.09) },
         uGrassLowB: { value: new THREE.Color().setRGB(0.19, 0.3, 0.12) },
         uGrassHighA: { value: new THREE.Color().setRGB(0.35, 0.46, 0.17) },
@@ -200,6 +202,7 @@ export function createLandscape(): {
       vertexShader: /* glsl */ `
         uniform float uTime;
         uniform float uWind;
+        uniform float uBendAmplitude;
         attribute float aGrowth;
         attribute float aBladePhase;
         varying float vHeight;
@@ -225,10 +228,15 @@ export function createLandscape(): {
           // Short meadow blades bend with the same gust, at their own scale.
           float stemHeight = length(instanceMatrix[1].xyz) * position.y / max(aGrowth,.001);
           float bladeScale = clamp(stemHeight/.36,.2,1.35);
-          float amplitude = uWind*(.38+.45*uWind)*stiffness*bladeScale;
+          float amplitude = uBendAmplitude*stiffness*bladeScale;
           vec2 bend = vec2(.93,.36)*breeze + vec2(-.36,.93)*flutter*.16*aGrowth;
+          float restHeight = world.y-root.y;
           world.xz += bend * tip * amplitude;
           world.y -= length(bend) * tip * amplitude * .13;
+          // Extra energy keeps the tips upright. Blend the safeguard in above
+          // 100% so the original range has exactly its previous deformation.
+          float supportedY = max(world.y,root.y+restHeight*.55);
+          world.y = mix(world.y,supportedY,clamp(uWind-1.,0.,1.));
           vHeight = aGrowth;
           vVariation = phase;
           vBladeLight = .94 + .06*cos(aBladePhase + phase*3.);
@@ -289,7 +297,7 @@ export function createLandscape(): {
   grass.instanceMatrix.needsUpdate = true;
   grass.computeBoundingSphere();
   // The shader displaces vertices beyond the static geometry bound.
-  if (grass.boundingSphere) grass.boundingSphere.radius += 1.5;
+  if (grass.boundingSphere) grass.boundingSphere.radius += 3.1;
   group.add(grass);
 
   // A continuous low meadow fills the whole bank, not only the detailed ribbon
@@ -392,7 +400,7 @@ export function createLandscape(): {
       });
       tile.instanceMatrix.needsUpdate = true;
       tile.computeBoundingSphere();
-      if (tile.boundingSphere) tile.boundingSphere.radius += 0.85;
+      if (tile.boundingSphere) tile.boundingSphere.radius += 3.1;
       meadowTiles.push(tile);
       group.add(tile);
     }
@@ -573,12 +581,22 @@ export function createLandscape(): {
     );
   }
 
+  let lastGrassTime: number | undefined;
+  let extraGustPhase = 0;
   return {
     group,
     setPalette,
     update(time, wind) {
-      grassMaterial.uniforms.uTime.value = time;
-      grassMaterial.uniforms.uWind.value = THREE.MathUtils.clamp(wind, 0, 1);
+      const now = Number.isFinite(time) ? Math.max(0, time) : (lastGrassTime ?? 0);
+      const response = windResponse(wind);
+      if (lastGrassTime !== undefined) {
+        if (now < lastGrassTime) extraGustPhase = 0;
+        else extraGustPhase += (now - lastGrassTime) * (response.gustSpeed - 1);
+      }
+      lastGrassTime = now;
+      grassMaterial.uniforms.uTime.value = now + extraGustPhase;
+      grassMaterial.uniforms.uWind.value = response.strength;
+      grassMaterial.uniforms.uBendAmplitude.value = response.grassBend;
     },
     dispose() {
       geometries.forEach((value) => value.dispose());
