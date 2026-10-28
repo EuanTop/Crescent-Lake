@@ -1,9 +1,10 @@
 import { Euler, Group, MathUtils, Quaternion, Vector3 } from "three";
 import type { Object3D } from "three";
+import { loopPhase } from "./loop.ts";
 import { clampMotionStrength } from "./motion.ts";
 
 export interface SwanMotion {
-  update(time: number, activity: number): void;
+  update(time: number, activity: number, loopDuration?: number): void;
 }
 
 const motions = new WeakMap<Object3D, SwanMotion>();
@@ -61,35 +62,62 @@ export function createSwanMotion(model: Object3D): SwanMotion {
   let lastTime: number | undefined;
   let extraGesturePhase = 0;
   const motion: SwanMotion = {
-    update(time, activity) {
+    update(time, activity, loopDuration = 0) {
       const now = Number.isFinite(time) ? Math.max(0, time) : (lastTime ?? 0);
       const strength = clampMotionStrength(activity);
       if (lastTime !== undefined) {
         if (now < lastTime) extraGesturePhase = 0;
-        else extraGesturePhase += (now - lastTime) * Math.max(0, strength - 1) * 0.55;
+        else
+          extraGesturePhase +=
+            (now - lastTime) * Math.max(0, strength - 1) * 0.55;
       }
       lastTime = now;
-      // Integrate only the extra speed, preserving original 0–100% timings
-      // while avoiding a phase jump when the activity slider changes.
-      const t = now + extraGesturePhase;
+      // Extra activity accelerates the gesture clock; default activity stays
+      // tied to scene time without a phase jump when the slider changes.
+      const t = loopDuration > 0 ? now % loopDuration : now + extraGesturePhase;
       const a = strength <= 1 ? strength : 1 + (strength - 1) * 0.45;
       const wingAmplitude = strength <= 1 ? strength : 1 + (strength - 1) * 1.6;
-      const breath = Math.sin(t * 1.18) * a;
-      const stretchEnvelope = gesture(t, 31, 17, 4.8);
+      const breathPhase = loopPhase(t, 1.18, loopDuration);
+      const breath = Math.sin(breathPhase) * a;
+      const stretchEnvelope =
+        loopDuration > 0
+          ? gesture(
+              t,
+              loopDuration,
+              loopDuration * 0.45,
+              Math.min(4.8, loopDuration * 0.15),
+            )
+          : gesture(t, 31, 17, 4.8);
       const stretch = stretchEnvelope * a;
       const wingStretch = stretchEnvelope * wingAmplitude;
-      const flutter = gesture(t, 13, 5.6, 1.35) * wingAmplitude;
-      const beat = Math.sin((t - 5.6) * 13.4);
+      const slotLength =
+        loopDuration > 0
+          ? loopDuration / Math.max(2, Math.round(loopDuration / 6))
+          : 6;
+      const slot = Math.floor(t / slotLength);
+      const random = Math.sin((slot + 1) * 127.1) * 43758.5453;
+      const jitter = random - Math.floor(random);
+      const start = slot * slotLength + 0.75 + jitter * 0.85;
+      const duration = 2.15 + (0.5 - jitter) * 0.3;
+      const local = (t - start) / duration;
+      const flutter =
+        local > 0 && local < 1
+          ? Math.sin(local * Math.PI) ** 2 * wingAmplitude
+          : 0;
+      const beat = Math.sin((t - start) * (7.2 + Math.min(1, strength) * 2));
 
       for (const { pivot, sign } of wings) {
         // Both wings lift together, with a tiny asymmetry rather than a flying
-        // stroke. The extra range is capped at seventeen degrees; body and
+        // stroke. The extra range is capped at thirty-one degrees; body and
         // shoulder offsets remain much subtler than the added feather lift.
-        const settle = Math.sin(t * 1.18 + sign * 0.18) * 0.004 * wingAmplitude;
+        const settle =
+          Math.sin(breathPhase + sign * 0.18) * 0.004 * wingAmplitude;
         const opening = MathUtils.clamp(
-          wingStretch * 0.105 + flutter * (0.02 + beat * 0.025) + settle,
-          -MathUtils.degToRad(17),
-          MathUtils.degToRad(17),
+          wingStretch * 0.15 +
+            flutter * (0.18 + (0.5 + beat * 0.5) * 0.22) +
+            settle,
+          -MathUtils.degToRad(25 + Math.max(0, strength - 1) * 6),
+          MathUtils.degToRad(25 + Math.max(0, strength - 1) * 6),
         );
         pivot.rotation.set(
           -stretch * 0.013,

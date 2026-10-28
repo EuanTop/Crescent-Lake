@@ -21,8 +21,8 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <div class="panel-heading"><div><p class="eyebrow">MAKE A LITTLE WEATHER</p><h2 id="settings-title">Scene settings</h2></div><button id="panel-close" aria-label="Close scene settings">×</button></div>
       <div class="actions"><button id="pause" disabled aria-label="Pause landscape" aria-pressed="false">${pauseIcon}<span>Pause</span></button><button id="save" disabled>${downloadIcon}<span>Save image</span></button></div>
       <fieldset><legend>Frame</legend><div class="segmented"><button class="active" data-frame="portrait" aria-pressed="true">Portrait 9:16</button><button data-frame="landscape" aria-pressed="false">Landscape 16:9</button></div></fieldset>
-      <fieldset><legend>Soundtrack</legend><button id="music" class="record-button" aria-pressed="false">Play lake music</button><label class="switch-row" for="include-music"><span>Include music in video</span><input id="include-music" type="checkbox" checked><span class="switch" aria-hidden="true"></span></label><p class="export-note">Warm chords, glass tones, soft wood & a little sway.</p></fieldset>
-      <fieldset class="video-control"><legend>Export video</legend><div class="video-options"><label for="duration">Duration</label><select id="duration"><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15" selected>15 seconds</option><option value="20">20 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option></select></div><button id="record" class="record-button" disabled>Export video</button><progress id="record-progress" max="20" value="0" hidden></progress><p id="record-status" class="export-note" role="status" aria-live="polite">1080 × 1920 · 30 fps · artwork + titles</p></fieldset>
+      <fieldset><legend>Soundtrack</legend><div class="actions"><button id="music" aria-pressed="false">Play lake music</button><button id="save-audio">Save loop audio</button></div><label class="switch-row" for="include-music"><span>Include music in video</span><input id="include-music" type="checkbox" checked><span class="switch" aria-hidden="true"></span></label><p class="export-note">Warm chords & a slow stereo drift. Headphones welcome.</p></fieldset>
+      <fieldset class="video-control"><legend>Export video</legend><div class="video-options"><label for="duration">Duration</label><select id="duration"><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option><option value="17">17 seconds</option><option value="20">20 seconds</option><option value="24" selected>24 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option></select></div><label class="switch-row" for="loop-film"><span>Loop one lake circuit · 24 s</span><input id="loop-film" type="checkbox" checked><span class="switch" aria-hidden="true"></span></label><label class="switch-row" for="light-journey"><span id="journey-label">Morning → Golden → Morning</span><input id="light-journey" type="checkbox" checked><span class="switch" aria-hidden="true"></span></label><button id="record" class="record-button" disabled>Export video</button><progress id="record-progress" max="20" value="0" hidden></progress><p id="record-status" class="export-note" role="status" aria-live="polite">1080 × 1920 · 30 fps · artwork + titles</p></fieldset>
       <fieldset class="palette-control"><legend>Color story</legend>${Object.entries(
         palettes,
       )
@@ -58,6 +58,15 @@ const record = get<HTMLButtonElement>("#record");
 const recordStatus = get<HTMLParagraphElement>("#record-status");
 const progress = get<HTMLProgressElement>("#record-progress");
 const duration = get<HTMLSelectElement>("#duration");
+const loopFilm = get<HTMLInputElement>("#loop-film");
+duration.disabled = true;
+loopFilm.addEventListener("change", () => {
+  duration.disabled = loopFilm.checked;
+  if (loopFilm.checked) duration.value = "24";
+  get("#journey-label").textContent = loopFilm.checked
+    ? "Morning → Golden → Morning"
+    : "Morning → Golden hour";
+});
 let recording = false;
 const music = createLakeMusic();
 let musicPlaying = false;
@@ -139,6 +148,7 @@ function selectButton(button: HTMLButtonElement, selector: string) {
   });
 }
 try {
+  await document.fonts.load('32px "Goudy Bookletter"');
   const world = await createWorld(get("#scene"), {
     onReady() {
       loading.classList.add("loaded");
@@ -187,6 +197,35 @@ try {
         recordStatus.textContent = videoNote();
       }),
     );
+  get<HTMLButtonElement>("#save-audio").addEventListener("click", async () => {
+    if (recording) return;
+    const button = get<HTMLButtonElement>("#save-audio");
+    const wasPlaying = musicPlaying;
+    button.disabled = record.disabled = musicButton.disabled = true;
+    try {
+      music.stop();
+      await music.prepareLoop(24);
+      const url = URL.createObjectURL(music.getLoopWav());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "crescent-lake-loop-24s.wav";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      announce("Your loop soundtrack is ready to download.");
+    } catch {
+      announce("The soundtrack could not be saved. Please try again.");
+    } finally {
+      musicPlaying = false;
+      if (wasPlaying) {
+        try { await music.start(); musicPlaying = true; } catch { /* Retry through Play. */ }
+      }
+      updateMusic();
+      button.disabled = musicButton.disabled = false;
+      record.disabled = !world.videoSupported;
+    }
+  });
   record.addEventListener("click", async () => {
     if (recording) {
       world.stopVideo();
@@ -194,6 +233,7 @@ try {
     }
     recording = true;
     const musicWasPlaying = musicPlaying;
+    const loop = loopFilm.checked;
     const controls = Array.from(
       panel.querySelectorAll<
         HTMLButtonElement | HTMLInputElement | HTMLSelectElement
@@ -210,14 +250,23 @@ try {
     let musicFade: ReturnType<typeof setTimeout> | undefined;
     try {
       const includeMusic = get<HTMLInputElement>("#include-music").checked;
-      if (includeMusic && !musicPlaying) {
-        await music.start();
-        musicPlaying = true;
-        updateMusic();
+      if (includeMusic) {
+        if (loop) {
+          music.stop();
+          musicPlaying = false;
+          record.disabled = true;
+          recordStatus.textContent = "Preparing the loop soundtrack…";
+          await music.prepareLoop(24);
+          record.disabled = false;
+        } else if (!musicPlaying) {
+          await music.start();
+          musicPlaying = true;
+          updateMusic();
+        }
       }
       document.body.classList.add("is-recording");
       setPanel(false);
-      if (includeMusic)
+      if (includeMusic && !loop)
         musicFade = setTimeout(
           () => music.setVolume(0, 2),
           Math.max(0, Number(duration.value) - 2) * 1000,
@@ -225,6 +274,14 @@ try {
       await world.recordVideo(
         Number(duration.value),
         includeMusic ? music.stream : null,
+        get<HTMLInputElement>("#light-journey").checked,
+        loop,
+        includeMusic && loop ? async () => {
+          music.playPreparedLoop();
+          // Let the live audio destination fill before the encoder attaches.
+          // Recording a full 24s still closes the periodic score at any phase.
+          await new Promise<void>((resolve) => setTimeout(resolve, 200));
+        } : undefined,
       );
       announce("Your lake video is ready to download.");
     } catch (error) {
@@ -237,6 +294,19 @@ try {
       recording = false;
       clearTimeout(musicFade);
       document.body.classList.remove("is-recording");
+      if (loop) {
+        music.stop();
+        musicPlaying = false;
+        if (musicWasPlaying) {
+          try {
+            await music.start();
+            musicPlaying = true;
+          } catch {
+            musicPlaying = false;
+          }
+        }
+        updateMusic();
+      }
       if (!musicWasPlaying && musicPlaying) {
         music.stop();
         musicPlaying = false;
@@ -250,6 +320,7 @@ try {
       record.textContent = "Export video";
       recordStatus.textContent = errorMessage || videoNote();
       progress.hidden = true;
+      duration.disabled = loopFilm.checked;
       updatePause();
     }
   });

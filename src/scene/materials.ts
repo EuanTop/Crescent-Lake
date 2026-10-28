@@ -5,10 +5,11 @@ import {
   UniformsUtils,
   Vector3,
 } from "three";
+import { goldenSurfaceGLSL, lightingAmount, sunPosition } from "./lighting";
 
 const materials = new Set<ShaderMaterial>();
-const sunDirection = new Vector3(-5, 9, 5).normalize();
-const eveningDirection = new Vector3(-10, 4.7, 4.1).normalize();
+const sunDirection = sunPosition(0).normalize();
+const currentSunDirection = new Vector3();
 
 /** Original implementation of palette-based lighting. Palettes run dark → light. */
 export function createToonMaterial(palette: string[]): ShaderMaterial {
@@ -65,6 +66,7 @@ export function createToonMaterial(palette: string[]): ShaderMaterial {
       uniform float uSurfaceVariation;
       varying vec3 vPaintNormal;
       varying vec3 vPaintPosition;
+      ${goldenSurfaceGLSL}
       void main() {
         vec3 n = normalize(vPaintNormal);
         float brightness = dot(n, uLightDirection) * 0.5 + 0.5;
@@ -78,7 +80,8 @@ export function createToonMaterial(palette: string[]): ShaderMaterial {
         col *= 1.0 - (wash * 0.5 + 0.5) * uSurfaceVariation;
         float shadow = getShadowMask();
         col = mix(col * 0.71 + uPalette[0] * 0.08, col, shadow);
-        col *= mix(vec3(1.0), vec3(1.12, 0.95, 0.79), uWarmth);
+        float illumination = smoothstep(0.30,0.80,brightness)*shadow;
+        col = goldenSurface(col,illumination,uWarmth);
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -91,12 +94,11 @@ export function createToonMaterial(palette: string[]): ShaderMaterial {
 }
 
 export function updatePaletteLighting(time: number, warmth: number): void {
+  const amount = lightingAmount(warmth);
+  sunPosition(amount, currentSunDirection).normalize();
   for (const material of materials) {
     material.uniforms.uTime.value = time;
-    material.uniforms.uWarmth.value = warmth;
-    material.uniforms.uLightDirection.value
-      .copy(sunDirection)
-      .lerp(eveningDirection, warmth)
-      .normalize();
+    material.uniforms.uWarmth.value = amount;
+    material.uniforms.uLightDirection.value.copy(currentSunDirection);
   }
 }

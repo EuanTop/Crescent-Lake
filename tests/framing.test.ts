@@ -12,6 +12,8 @@ import {
 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { frameLake } from "../src/scene/framing.ts";
+import { LOOP_SECONDS } from "../src/scene/loop.ts";
+import { advanceDistance } from "../src/scene/motion.ts";
 
 // The authored swimming loop and model scale from world.ts. Use the shipped
 // model's actual bounds so a later bird-size change cannot silently crop it.
@@ -28,6 +30,19 @@ const route = new CatmullRomCurve3(
   "centripetal",
 );
 const newCamera = () => new OrthographicCamera(-12, 12, 8.5, -8.5, 0.1, 100);
+test("the full authored route takes24seconds at different playback frame rates", () => {
+  const length = route.getLength();
+  const initial = length * .76;
+  for (const fps of [24, 30, 60, 120]) {
+    let distance = initial;
+    for (let frame = 0; frame < LOOP_SECONDS * fps; frame++) {
+      distance = advanceDistance(distance, 1 / fps, length / LOOP_SECONDS, length);
+      if (frame + 1 === LOOP_SECONDS * fps / 2)
+        assert.ok(Math.abs(distance - length * .26) < 1e-9);
+    }
+    assert.ok(Math.abs(distance - initial) < 1e-9);
+  }
+});
 const shoreX = (z: number) =>
   -8.05 + 2.9 * Math.cos((z / 23) * Math.PI) +
   0.19 * Math.sin(z * 0.66) +

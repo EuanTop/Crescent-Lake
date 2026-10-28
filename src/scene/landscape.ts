@@ -1,11 +1,13 @@
 import * as THREE from "three";
 import { createToonMaterial } from "./materials";
 import { windResponse } from "./motion";
+import { softenGrassPalette } from "./lighting";
+import { loopWind, treeWind } from "./wind-loop";
 
 /** A quiet, planted bank. All scenery is geometry; no image assets are used. */
 export function createLandscape(): {
   group: THREE.Group;
-  update(time: number, wind: number): void;
+  update(time: number, wind: number, loopDuration?: number): void;
   setPalette(id: "sage" | "blue" | "green"): void;
   dispose(): void;
 } {
@@ -187,20 +189,32 @@ export function createLandscape(): {
   );
   bladeGeometry.setIndex(bladeIndices);
   bladeGeometry.computeVertexNormals();
+  const morningGrass = softenGrassPalette([
+    new THREE.Color().setRGB(0.12, 0.23, 0.09),
+    new THREE.Color().setRGB(0.19, 0.3, 0.12),
+    new THREE.Color().setRGB(0.35, 0.46, 0.17),
+    new THREE.Color().setRGB(0.47, 0.56, 0.24),
+  ]);
   const grassMaterial = material(
     new THREE.ShaderMaterial({
       side: THREE.DoubleSide,
       uniforms: {
         uTime: { value: 0 },
+        uLoopDuration: { value: 0 },
+        uLoopAngle: { value: 0 },
+        uLoopOrbit: { value: new THREE.Vector2() },
+        uLoopSpeed: { value: 1 },
         uWind: { value: 0.35 },
         uBendAmplitude: { value: 0.188125 },
-        uGrassLowA: { value: new THREE.Color().setRGB(0.12, 0.23, 0.09) },
-        uGrassLowB: { value: new THREE.Color().setRGB(0.19, 0.3, 0.12) },
-        uGrassHighA: { value: new THREE.Color().setRGB(0.35, 0.46, 0.17) },
-        uGrassHighB: { value: new THREE.Color().setRGB(0.47, 0.56, 0.24) },
+        uGrassLowA: { value: morningGrass[0] },
+        uGrassLowB: { value: morningGrass[1] },
+        uGrassHighA: { value: morningGrass[2] },
+        uGrassHighB: { value: morningGrass[3] },
       },
       vertexShader: /* glsl */ `
         uniform float uTime;
+        uniform float uLoopDuration,uLoopAngle,uLoopSpeed;
+        uniform vec2 uLoopOrbit;
         uniform float uWind;
         uniform float uBendAmplitude;
         attribute float aGrowth;
@@ -219,10 +233,20 @@ export function createLandscape(): {
           float phase = hash(root.xz);
           // Low-frequency weather travels across the bank. Every blade shares
           // the world-space wind direction, regardless of its random tuft yaw.
-          float gust = noise(root.xz * .24 - vec2(uTime*.28,uTime*.11));
-          float swell = sin(dot(root.xz,vec2(.55,.24)) - uTime*1.6 + gust*2.4);
+          vec2 gustOffset=vec2(uTime*.28,uTime*.11);
+          float swellPhase=uTime*1.6;
+          float flutterPhase=uTime*(2.5+phase*1.7);
+          if (uLoopDuration>0.) {
+            gustOffset=uLoopOrbit*vec2(.28,.11)*uLoopSpeed*uLoopDuration/6.28318530718;
+            float swellCycles=max(1.,floor(1.6*uLoopSpeed*uLoopDuration/6.28318530718+.5));
+            float flutterCycles=max(1.,floor((2.5+phase*1.7)*uLoopSpeed*uLoopDuration/6.28318530718+.5));
+            swellPhase=uLoopAngle*swellCycles;
+            flutterPhase=uLoopAngle*flutterCycles;
+          }
+          float gust = noise(root.xz * .24 - gustOffset);
+          float swell = sin(dot(root.xz,vec2(.55,.24)) - swellPhase + gust*2.4);
           float breeze = .32 + .88*gust + .40*swell;
-          float flutter = sin(uTime*(2.5+phase*1.7) + phase*31. + aBladePhase + root.x*.3);
+          float flutter = sin(flutterPhase + phase*31. + aBladePhase + root.x*.3);
           float tip = aGrowth*aGrowth;
           float stiffness = mix(.82,1.18,phase);
           // Short meadow blades bend with the same gust, at their own scale.
@@ -238,8 +262,10 @@ export function createLandscape(): {
           float supportedY = max(world.y,root.y+restHeight*.55);
           world.y = mix(world.y,supportedY,clamp(uWind-1.,0.,1.));
           vHeight = aGrowth;
-          vVariation = phase;
-          vBladeLight = .94 + .06*cos(aBladePhase + phase*3.);
+          // Narrow pigment variation rather than dark random flecks. The
+          // full phase above still drives exactly the same organic wind.
+          vVariation = .5+(phase-.5)*.28;
+          vBladeLight = .99+.01*cos(aBladePhase+phase*3.);
           gl_Position = projectionMatrix * viewMatrix * world;
         }
       `,
@@ -251,7 +277,8 @@ export function createLandscape(): {
         void main() {
           vec3 low = mix(uGrassLowA,uGrassLowB,vVariation);
           vec3 high = mix(uGrassHighA,uGrassHighB,vVariation);
-          vec3 col = mix(low,high,smoothstep(.02,.97,vHeight))*vBladeLight;
+          float rise = .12+.88*smoothstep(.0,.92,vHeight);
+          vec3 col = mix(low,high,rise)*vBladeLight;
           gl_FragColor = vec4(col,1.);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -452,10 +479,17 @@ export function createLandscape(): {
     mesh.castShadow = true;
     parent.add(mesh);
   };
+  const windTrees: {
+    root: THREE.Group;
+    offset: number;
+    crowns: { mesh: THREE.Mesh; rest: THREE.Euler; offset: number }[];
+  }[] = [];
   const makeTree = (x: number, z: number, scale: number): void => {
     const tree = new THREE.Group();
     tree.position.set(x, 0.18, z);
+    tree.name = `Wind tree ${windTrees.length+1}`;
     tree.scale.setScalar(scale);
+    const windTree = { root: tree, offset: x*0.31+z*0.19+windTrees.length*1.93, crowns: [] as { mesh: THREE.Mesh; rest: THREE.Euler; offset: number }[] };
     branch(
       tree,
       new THREE.Vector3(0, 0, 0),
@@ -489,9 +523,11 @@ export function createLandscape(): {
       crown.rotation.set(random() * 0.5, random() * 3, random() * 0.5);
       crown.castShadow = true;
       crown.receiveShadow = true;
+      windTree.crowns.push({ mesh: crown, rest: crown.rotation.clone(), offset: windTree.offset+i*1.73 });
       tree.add(crown);
     });
     group.add(tree);
+    windTrees.push(windTree);
   };
   makeTree(-8.4, -4.8, 1.07);
   makeTree(-10.4, -3.6, 0.83);
@@ -574,9 +610,12 @@ export function createLandscape(): {
     recolor(leafMaterial, palette.leaf);
     recolor(leafLightMaterial, palette.leafLight);
     recolor(rockMaterial, palette.rock);
+    const softGrass = softenGrassPalette(
+      palette.grass.map((color) => new THREE.Color(color)),
+    );
     ["uGrassLowA", "uGrassLowB", "uGrassHighA", "uGrassHighB"].forEach(
       (name, i) => {
-        grassMaterial.uniforms[name].value.set(palette.grass[i]);
+        grassMaterial.uniforms[name].value.copy(softGrass[i]);
       },
     );
   }
@@ -586,15 +625,32 @@ export function createLandscape(): {
   return {
     group,
     setPalette,
-    update(time, wind) {
-      const now = Number.isFinite(time) ? Math.max(0, time) : (lastGrassTime ?? 0);
+    update(time, wind, loopDuration) {
+      const now = Number.isFinite(time)
+        ? Math.max(0, time)
+        : (lastGrassTime ?? 0);
       const response = windResponse(wind);
       if (lastGrassTime !== undefined) {
         if (now < lastGrassTime) extraGustPhase = 0;
         else extraGustPhase += (now - lastGrassTime) * (response.gustSpeed - 1);
       }
       lastGrassTime = now;
+      const loop = loopWind(now,wind,loopDuration);
       grassMaterial.uniforms.uTime.value = now + extraGustPhase;
+      grassMaterial.uniforms.uLoopDuration.value = loop.duration;
+      grassMaterial.uniforms.uLoopAngle.value = loop.angle;
+      grassMaterial.uniforms.uLoopOrbit.value.set(loop.orbitX,loop.orbitY);
+      grassMaterial.uniforms.uLoopSpeed.value = loop.grassSpeed;
+      for (const tree of windTrees) {
+        const pose = treeWind(now,wind,tree.offset,loopDuration);
+        tree.root.rotation.set(pose.x,0,pose.z);
+        for (const crown of tree.crowns) {
+          const leaf = treeWind(now,wind,crown.offset,loopDuration);
+          crown.mesh.rotation.copy(crown.rest);
+          crown.mesh.rotation.x += leaf.crownX;
+          crown.mesh.rotation.z += leaf.crownZ;
+        }
+      }
       grassMaterial.uniforms.uWind.value = response.strength;
       grassMaterial.uniforms.uBendAmplitude.value = response.grassBend;
     },

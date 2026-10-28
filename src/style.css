@@ -884,3 +884,17 @@ body.is-recording .notice {
 .settings::-webkit-scrollbar {
   display: none;
 }
+
+@font-face {
+  font-family: "Goudy Bookletter";
+  src: url("/fonts/GoudyBookletter1911.woff") format("woff");
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+}
+.panel-heading h2,
+.style-choice span,
+.palette-choice > span:nth-child(2),
+.panel-footnote {
+  font-family: "Goudy Bookletter", Georgia, serif;
+}

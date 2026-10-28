@@ -1,5 +1,24 @@
 # Validation
 
+## Twenty-four-second closed film — 2026-10-28 (v0.5)
+
+- Reused the existing5173 server and Arc native UI, with Portrait9:16, Cel Illustration, Soft Sage,100% wind/activity, clouds, birds, music, full-circuit loop and light journey enabled. No additional server was started.
+- Actual browser recording is23.999375seconds,1080×1920 H.264 at approximately30fps, with48kHz stereo AAC. Decoded0/2/6/12/18/23.93-second portrait frames verify one complete swan circuit, visible wing opening, changed tree crowns, passing cloud/bird positions and Morning→Golden→Morning. The full model remains inside the portrait throughout. Captured frames contain authored titles and no settings or engineering labels.
+- Reviewing the first capture revealed a nearly complete ring of22-second wakes after increasing swim speed. The final faster scene uses a6.72-second fade window; the retained final frames show a trailing ribbon instead. Fixed-grid prewarming closes the history at the seam.
+- Browser AAC had40–49ms of initial digital silence even after audio pre-roll. The final deliverable copies that recorded video and replaces audio from the exact24-second float32 stereo WAV, encoded with FFmpeg AAC priming metadata. Final MP4 duration is24.000000seconds,24,897,960bytes. Video is copied without re-encoding. The browser original is preserved separately.
+- The WAV contains1,152,000frames at48kHz. First and last samples are exactly equal in each channel. Full final MP4 audio decode is24seconds, begins audibly at sample0, peaks at−17.49dBFS and has no ending fade. First/last20ms RMS levels are−35.51/−34.37dBFS. Stereo energy favors left by2.16dB at1–3seconds, right by1.38dB at5–7seconds and left by2.57dB at9–11seconds. These checks establish signal continuity and spatial motion, not subjective musical quality.
+- Automated checks cover24-second route closure at24/30/60/120fps; light/pose/wind closure; seam velocity; tree root anchors and bounds; visible intermittent wing bursts; periodic score structure; PCM endpoint correction; float WAV headers/samples; prepare/play/cache/cancel/dispose lifecycle. All58 tests and the production build pass after final source review; only the existing Three.js bundle-size advisory remains.
+- Friendly artifacts are in ignored `artifacts/`: `crescent-lake-loop-24s.mp4`, `crescent-lake-loop-24s.wav`, `lake-loop-24s.mp3`, six portrait frames and `loop-metadata.json`. The earlier17-second one-way light journey is retained as history.
+
+## Seventeen-second light journey —2026-10-28(v0.4.1)
+
+- Reused5173 and Arc native UI; actual portrait export is17.003867seconds,1080×1920 H.264 at29.95fps with stereo48kHz AAC. File size17,429,094bytes.
+- Decoded frames at0.5,8and15.5seconds confirm the new locally loaded typeface and smooth Morning-to-Golden progression; the first and final labels and lighting agree. No controls, browser chrome or engineering labels are in the captured artwork.
+- Full audio decode succeeds with peak−18.68dBFS. Exported left/right energy favors the left by2.31dB at1–3seconds, the right by2.03dB at4–6seconds, then left by3.65dB at9–11seconds. The channels differ and the intended return motion survives encoding.
+- The reed was removed; score and synth tests cover low bass register, root/fifth harmonic fit, exact6/8 timing, rests and centering, alongside continuous lead envelopes and stereo curves.
+  -46automated tests and production build pass. Golden color tests cover all3palettes; actual Morning/Golden Sage PNGs were compared in the same paused portrait composition. Soft roots and lower speckle contrast render correctly. Segmented translucent water is verified in the recorded clip.
+- The17-second journey follows real capture time, holds Morning for3seconds, eases to Golden over10seconds and settles for4seconds. Completion restores the prior preview light and pause state.
+
 ## Social-video artwork — 2026-10-28 (v0.4)
 
 - Reused the user’s existing `127.0.0.1:5173` server; no additional dev server was started. Arc native UI confirmed in-panel Portrait 9:16, music controls, 15-second duration, MP4 export and 100% motion defaults.

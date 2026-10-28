@@ -16,7 +16,7 @@ The retained mood is warm and airy. The audible lead no longer has a percussive 
 
 Fmaj9, Am9, G6/9 and Cmaj9 share slowly moving upper voices. Adjacent voiced notes move no more than three semitones, including the loop seam. The main phrase and its reply occupy different registers and pan positions. Silence separates their gestures; the score does not fill every beat with a random scale note.
 
-Separate sends control near/far layers. Early reflections, a short predelay, filtered long reverb and damped modulation delay provide depth. A gentle midrange dip and slow compression control accumulation. The export bus shares the live mix; clone audio tracks so finishing a capture does not end the live destination. The selected clip ends with a two-second fade.
+Separate sends control near/far layers. Early reflections, a short predelay, filtered long reverb and damped modulation delay provide depth. A gentle midrange dip and slow compression control accumulation. The export bus shares the live mix; clone audio tracks so finishing a capture does not end the live destination. Non-loop clips end with a two-second fade. The24-second loop has no fade.
 
 Tests verify score and signal-envelope invariants, not musical quality. Export metadata, decoding and level checks verify the generated audio exists and is technically valid. Listening judgment remains distinct from those checks.
 
@@ -27,3 +27,18 @@ Four roles enter in the first3.5seconds: warm bed at0, breathy glass lead at0.75
 ## Continuous legato
 
 The final lead uses one oscillator bank and one gain envelope for each multi-pitch sentence. Internal pitch changes hold the prior frequency then glide160–235ms to the next target; they do not retrigger the gain. Lead events live in `phrase.melody`, outside the per-note layer. The first C–E–D line runs about0.75–6.7seconds, with the lower A–C–B answer beginning around8.25seconds. The chord bed is29% stronger than the preceding sketch, the lead21% quieter, and the wood layer has fewer events with half the velocity and spatial send. This directly addresses the audible note-by-note attack rather than changing chord names.
+
+## Stereo and grounded rhythm — v0.4.1
+
+The accepted continuous high melody now makes a9-second left–right–left orbit; lower wooden replies use the opposite phase. Filtered echoes cross between480ms left and570ms right delays. Bass and air pulse remain centered; the capture destination explicitly has two channels.
+
+An experimental upper reed ornament was rejected and removed. The final additional instrument is a centered warm bass at MIDI41–55: root notes and selected fifths land exactly on the70BPM compound6/8 grid. Rounded55–65ms attacks and700Hz filtering keep the weight soft; second and third harmonics give it body on small speakers. Selected bars and secondary beats are left empty. The high legato line, chord progression and stereo orbit remain intact.
+
+
+## Twenty-four-second film loop — v0.5
+
+The loop score uses14 full6/8 bars at70BPM. Fmaj9, Am9, G6/9 and Cmaj9 enter at bars0,4,8and12; the closing B–D–C line resolves before the seam. The main accepted legato melody, centered rhythmic bass and original synth voices remain. No rejected upper reed returns. Stereo movement completes three8-second orbits.
+
+The same synthesis graph renders three consecutive cycles offline; the settled middle cycle retains incoming pad and reverb tails. A128-sample raised-cosine additive endpoint correction removes residual sample discontinuity without fading to silence. Preparation remains silent; preview listening retains its original48-second score. Live capture starts after a short audio-buffer pre-roll.
+
+`getLoopWav()` exports the original two-channel float32 PCM at the live output gain. This avoids the40–49ms of leading AAC padding observed in Arc MediaRecorder output. The final delivered MP4 copies the recorded video and encodes the WAV separately with FFmpeg, which writes correct priming metadata. The original browser export is retained alongside it. WAV sample identity is tested independently from musical quality; full encoded audio decoding verifies non-silent first/last windows and stereo movement.

@@ -8,6 +8,8 @@ import {
 } from "three";
 import { Reflector } from "three/addons/objects/Reflector.js";
 import { palettes, type PaletteId } from "./palettes";
+import { GOLDEN_WATER_LIGHT, lightingAmount } from "./lighting";
+import { loopWind } from "./wind-loop";
 import {
   advanceWindPhase,
   WAKE_CAPACITY,
@@ -41,8 +43,15 @@ export function createWater() {
         uDeep: { value: new Color(palettes.sage.deep) },
         uPale: { value: new Color(palettes.sage.pale) },
         uReflectionTint: { value: new Color(palettes.sage.reflection) },
+        uGoldenWaterLight: { value: new Color(GOLDEN_WATER_LIGHT) },
         uTime: { value: 0 },
         uWindPhase: { value: 0 },
+        uLoopDuration: { value: 0 },
+        uLoopAngle: { value: 0 },
+        uLoopOrbit: { value: new Vector2() },
+        uLoopWaterRate: { value: 0 },
+        uWaveCycles: { value: 0 },
+        uSwayCycles: { value: 0 },
         uWind: { value: 0.4 },
         uWarmth: { value: 0 },
         uBird: { value: new Vector2() },
@@ -63,8 +72,10 @@ export function createWater() {
       `,
       fragmentShader: /* glsl */ `
         uniform sampler2D tDiffuse;
-        uniform vec3 uDeep, uPale, uReflectionTint;
+        uniform vec3 uDeep, uPale, uReflectionTint, uGoldenWaterLight;
         uniform float uTime, uWindPhase, uWind, uWarmth, uReflection;
+        uniform float uLoopDuration,uLoopAngle,uLoopWaterRate,uWaveCycles,uSwayCycles;
+        uniform vec2 uLoopOrbit;
         uniform vec2 uBird;
         uniform vec4 uWakes[${WAKE_CAPACITY}];
         uniform vec2 uWakeDirections[${WAKE_CAPACITY}];
@@ -94,26 +105,61 @@ export function createWater() {
           float n = noise(p*0.31);
           // A mirror lake moves in broad swells, not a layer of small ink marks.
           // Two slow, low-frequency fields bend reflected shapes continuously.
-          vec2 drift = p-flow*phase*0.43;
+          vec2 circulation=flow*phase;
+          vec2 crossDrift=vec2(.09,-.12)*phase;
+          vec2 waveNoiseDrift=vec2(phase*.018);
+          float waveAdvance=phase*.72;
+          float swayPhase=phase*.09;
+          float segmentDrift=phase*.035;
+          if (uLoopDuration>0.) {
+            float radius=uLoopWaterRate*uLoopDuration/6.28318530718;
+            circulation=(vec2(-flow.y,flow.x)*uLoopOrbit.x+flow*uLoopOrbit.y)*radius;
+            crossDrift=uLoopOrbit*vec2(.09,-.12)*radius;
+            waveNoiseDrift=uLoopOrbit*radius*.018;
+            waveAdvance=uLoopAngle*uWaveCycles;
+            swayPhase=uLoopAngle*uSwayCycles;
+            segmentDrift=uLoopOrbit.y*radius*.035;
+          }
+          vec2 drift = p-circulation*0.43;
           vec2 warp = vec2(noise(p*.12+vec2(9.3,2.8)),noise(p*.14+vec2(1.2,7.6)))-.5;
           vec3 swell = noiseGradient(drift*vec2(.23,.32)+warp*.35);
-          vec3 crossSwell = noiseGradient(p*vec2(.17,.21)+vec2(17.3,9.1)+vec2(.09,-.12)*phase);
+          vec3 crossSwell = noiseGradient(p*vec2(.17,.21)+vec2(17.3,9.1)+crossDrift);
           vec2 slope = swell.yz*.72+crossSwell.yz*.28;
           float localLight = clamp(dot(slope,normalize(vec2(-.57,.82))),-1.,1.);
           float windShade = localLight*uWind*.045;
           // No ridge thresholds, fine noise, foam or repeating stripe pattern.
           vec2 distortion = slope*uWind*.0055;
-          // Lake-wide connected wavefronts: a handful of long, translucent
-          // curves, with organic spacing and interruptions rather than Wi-Fi arcs.
+          // Preserve the lake-wide curved wavefield, but break each crest into
+          // its own translucent brush lengths instead of continuous hard bands.
           float across=dot(p,vec2(-flow.y,flow.x));
-          float wavePhase=dot(p,flow)*2.45-phase*.72
-            +noise(p*.19+vec2(3.8,7.2)+phase*.018)*2.3
-            +sin(across*.42+phase*.09)*.48;
+          float wavePhase=dot(p,flow)*2.45-waveAdvance
+            +noise(p*.19+vec2(3.8,7.2)+waveNoiseDrift)*2.3
+            +sin(across*.42+swayPhase)*.48;
           float crest=pow(.5+.5*sin(wavePhase),18.);
           float crestShadow=pow(.5+.5*sin(wavePhase-.36),14.);
-          float opening=smoothstep(.23,.67,noise(p*.28-flow*phase*.035+vec2(9.2,2.4)));
-          float waterRidge=crest*(.25+.75*opening)*uWind;
-          float waterTrough=crestShadow*(.25+.75*opening)*uWind;
+          float band=floor(wavePhase/6.28318530718);
+          if (uLoopDuration>0.) band=mod(band,max(1.,uWaveCycles));
+          float bandSeed=hash(vec2(band,17.3));
+          float spacing=6.5+hash(vec2(band,41.7))*2.;
+          float segmentAxis=across+bandSeed*spacing*2.7+segmentDrift*(bandSeed-.5);
+          float slot=floor(segmentAxis/spacing);
+          float segments=0.;
+          for (int neighbor=-1;neighbor<=1;neighbor++) {
+            float id=slot+float(neighbor);
+            float segmentLength=mix(1.5,5.,hash(vec2(band+7.3,id+11.2)));
+            float jitter=(hash(vec2(band,id+31.7))-.5)*.20;
+            float center=(id+.5+jitter)*spacing;
+            float distanceToCenter=abs(segmentAxis-center);
+            // Each end fades over thirty percent of its own length. Neighbor
+            // bands use unrelated phases/lengths, so no shared cut columns.
+            float endFade=segmentLength*.30;
+            float gate=1.-smoothstep(segmentLength*.5-endFade,segmentLength*.5,distanceToCenter);
+            segments=max(segments,gate);
+          }
+          float opening=smoothstep(.14,.58,noise(p*.28-circulation*.035+vec2(9.2,2.4)));
+          float waveVisibility=segments*opening;
+          float waterRidge=crest*waveVisibility*uWind;
+          float waterTrough=crestShadow*waveVisibility*uWind;
           float wakeLight = 0.0;
           float wakeDark = 0.0;
           for (int i = 0; i < ${WAKE_CAPACITY}; i++) {
@@ -169,13 +215,19 @@ export function createWater() {
           col *= 1.0+windShade*rippleVisibility;
           col*=1.-waterTrough*.022*rippleVisibility;
           vec3 waterLight=mix(uPale,vec3(.95,.97,.92),.12);
-          col=mix(col,waterLight,waterRidge*.15*rippleVisibility);
+          col=mix(col,waterLight,waterRidge*.18*rippleVisibility);
           col *= 1.0 - wakeDark * 0.23;
           vec3 wakeColor = mix(uPale, vec3(0.98, 0.99, 0.94), 0.58);
           col = mix(col, wakeColor, wakeLight * 0.57);
           float contact = exp(-dot((p-uBird)/vec2(0.48,0.78),(p-uBird)/vec2(0.48,0.78))*2.0);
           col *= 1.0 - contact * 0.13;
-          col = mix(col, col * vec3(1.06,0.99,0.92) + vec3(0.025,0.012,0.004), uWarmth);
+          // Warm only the existing illumination: the accepted wavefield,
+          // reflections and wake positions/timing remain exactly as authored.
+          float reflectedLight = smoothstep(0.42,0.95,dot(reflection,vec3(.2126,.7152,.0722)));
+          float goldenHighlight = clamp(reflectedLight*.60+waterRidge*.20+wakeLight*.65,0.,1.);
+          vec3 goldenWater = col*vec3(1.16,1.02,.79)+vec3(.025,.014,.001);
+          goldenWater = mix(goldenWater,uGoldenWaterLight,.04+goldenHighlight*.22);
+          col = mix(col,clamp(goldenWater,0.,1.),uWarmth);
           gl_FragColor = vec4(col, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -200,6 +252,8 @@ export function createWater() {
       z: number,
       tailX: number,
       tailZ: number,
+      loopDuration?: number,
+      manualWake = false,
     ) {
       const now = Number.isFinite(time) ? Math.max(0, time) : (lastTime ?? 0);
       const response = windResponse(wind);
@@ -210,11 +264,18 @@ export function createWater() {
         response.strength,
       );
       lastTime = now;
-      history.sample(now, tailX, tailZ);
+      if (!manualWake) history.sample(now, tailX, tailZ);
+      const loop = loopWind(now,wind,loopDuration);
+      material.uniforms.uLoopDuration.value = loop.duration;
+      material.uniforms.uLoopAngle.value = loop.angle;
+      material.uniforms.uLoopOrbit.value.set(loop.orbitX,loop.orbitY);
+      material.uniforms.uLoopWaterRate.value = loop.waterRate;
+      material.uniforms.uWaveCycles.value = loop.waveCycles;
+      material.uniforms.uSwayCycles.value = loop.swayCycles;
       material.uniforms.uTime.value = now;
       material.uniforms.uWindPhase.value = windPhase;
       material.uniforms.uWind.value = response.amplitude;
-      material.uniforms.uWarmth.value = warmth;
+      material.uniforms.uWarmth.value = lightingAmount(warmth);
       if (Number.isFinite(x) && Number.isFinite(z))
         material.uniforms.uBird.value.set(x, z);
       material.uniforms.uWakeCount.value = history.points.length;
@@ -224,7 +285,11 @@ export function createWater() {
           point.x,
           point.z,
           point.born,
-          wakeStrength(now - point.born),
+          // The faster one-lap film should retain a trailing ribbon, rather
+          // than drawing almost the complete route with the preview's 22s tail.
+          wakeStrength((now - point.born) * (loopDuration
+            ? WAKE_LIFETIME / Math.min(WAKE_LIFETIME, loopDuration * .28)
+            : 1)),
         );
         const direction = history.directionFor(point);
         wakeDirections[i].set(direction.x, direction.z);

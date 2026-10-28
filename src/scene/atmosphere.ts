@@ -9,11 +9,12 @@ import {
 } from "three";
 import type { Material } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { loopPhase } from "./loop";
 import { createToonMaterial } from "./materials";
 
 export interface Atmosphere {
   group: Group;
-  update(time: number, wind: number): void;
+  update(time: number, wind: number, loopDuration?: number): void;
   setClouds(visible: boolean): void;
   setBirds(visible: boolean): void;
   dispose(): void;
@@ -159,7 +160,7 @@ export function createAtmosphere(): Atmosphere {
   let disposed = false;
   const atmosphere: Atmosphere = {
     group,
-    update(time, wind) {
+    update(time, wind, loopDuration = 0) {
       if (disposed) return;
       const t = Number.isFinite(time) ? Math.max(0, time) : 0;
       const breeze = Number.isFinite(wind) ? MathUtils.clamp(wind, 0, 1) : 0;
@@ -167,17 +168,24 @@ export function createAtmosphere(): Atmosphere {
         // Cross the frame rather than merely oscillating. The wrap occurs far
         // outside this scene's frustum. Fixed travel speed keeps a wind-slider
         // change from jumping the cloud to a different point in its journey.
-        const x = ((cloud.x + t * cloud.speed + 24) % 48) - 24;
+        const travel =
+          loopDuration > 0
+            ? ((t % loopDuration) * 48) / loopDuration
+            : t * cloud.speed;
+        const x = ((cloud.x + travel + 24) % 48) - 24;
         cloud.mesh.position.set(
           x,
-          cloud.y + Math.sin(t * 0.11 + cloud.phase) * (0.035 + breeze * 0.025),
-          cloud.z + Math.cos(t * 0.019 + cloud.phase) * 0.3,
+          cloud.y +
+            Math.sin(loopPhase(t, 0.11, loopDuration) + cloud.phase) *
+              (0.035 + breeze * 0.025),
+          cloud.z +
+            Math.cos(loopPhase(t, 0.019, loopDuration) + cloud.phase) * 0.3,
         );
       }
 
       // Bounded overhead loop across the upper water; never descends into the
       // swan's route. No modulo teleport or per-frame random positions.
-      const phase = t * 0.058 - 0.85;
+      const phase = loopPhase(t, 0.058, loopDuration) - 0.85;
       birdGroup.position.set(
         2.2 + Math.sin(phase) * 3.1,
         3.1,
@@ -188,16 +196,19 @@ export function createAtmosphere(): Atmosphere {
         -Math.sin(phase) * 1.25,
       );
       for (const bird of flyingBirds) {
-        const beat = t * 4.9 + bird.phase;
+        const beat = loopPhase(t, 4.9, loopDuration) + bird.phase;
         const flap = 0.14 + Math.sin(beat) * 0.34;
         bird.left.rotation.z = -flap;
         bird.right.rotation.z = flap;
         bird.bird.position.set(
-          bird.x + Math.sin(t * 0.43 + bird.phase) * 0.035,
-          Math.sin(beat - 0.4) * 0.035 + Math.sin(t * 0.3 + bird.phase) * 0.055,
+          bird.x +
+            Math.sin(loopPhase(t, 0.43, loopDuration) + bird.phase) * 0.035,
+          Math.sin(beat - 0.4) * 0.035 +
+            Math.sin(loopPhase(t, 0.3, loopDuration) + bird.phase) * 0.055,
           bird.z,
         );
-        bird.bird.rotation.z = Math.sin(t * 0.29 + bird.phase) * 0.045;
+        bird.bird.rotation.z =
+          Math.sin(loopPhase(t, 0.29, loopDuration) + bird.phase) * 0.045;
       }
     },
     setClouds(visible) {

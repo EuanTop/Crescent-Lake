@@ -2,7 +2,7 @@
 export function paintPresentation(
   output: HTMLCanvasElement,
   source: HTMLCanvasElement,
-  golden: boolean,
+  warmth: number,
 ) {
   const ctx = output.getContext("2d", { alpha: false });
   if (!ctx) return;
@@ -89,18 +89,22 @@ export function paintPresentation(
   );
   ctx.textAlign = "left";
   ctx.fillStyle = "#3d5146";
-  ctx.font = `${30 * unit}px Georgia, serif`;
+  ctx.font = `${30 * unit}px "Goudy Bookletter", Georgia, serif`;
   ctx.fillText("Crescent Lake", 32 * unit, 49 * unit);
   ctx.fillStyle = "#7c8b73";
   ctx.font = `${8 * unit}px Arial, sans-serif`;
   ctx.fillText(
-    golden ? "SPRING  /  GOLDEN HOUR" : "SPRING  /  MORNING",
+    warmth < 0.03
+      ? "SPRING  /  MORNING"
+      : warmth > 0.97
+        ? "SPRING  /  GOLDEN HOUR"
+        : "SPRING  /  CHANGING LIGHT",
     34 * unit,
     68 * unit,
   );
   ctx.textAlign = "center";
   ctx.fillStyle = "#45594b";
-  ctx.font = `italic ${18 * unit}px Georgia, serif`;
+  ctx.font = `${20 * unit}px "Goudy Bookletter", Georgia, serif`;
   ctx.fillText("Where the water slows.", w * 0.5, h - 65 * unit);
   ctx.fillStyle = "#829079";
   ctx.font = `${8 * unit}px Arial, sans-serif`;

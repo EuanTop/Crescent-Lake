@@ -24,9 +24,13 @@ import { createSwanMotion } from "./swan";
 import { createAtmosphere } from "./atmosphere";
 import { createPainterly } from "./painterly";
 import { paintPresentation } from "./presentation";
+import { LOOP_SECONDS, loopPhase, loopWarmth } from "./loop";
+import { WAKE_INTERVAL, WAKE_LIFETIME } from "./motion";
+import { videoWarmth } from "./journey";
 import { frameLake } from "./framing";
 import { createVideoRecorder, type RecordingState } from "./recording";
 import type { VisualStyleId } from "./styles";
+import { goldenSurface, lightingAmount, sunPosition } from "./lighting";
 
 export interface WorldOptions {
   onReady(): void;
@@ -84,7 +88,7 @@ export async function createWorld(
   const camera = new OrthographicCamera(-12, 12, 8.5, -8.5, 0.1, 100);
 
   const sun = new DirectionalLight("#fff1d3", 2);
-  sun.position.set(-5, 9, 5);
+  sunPosition(0, sun.position);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, {
@@ -99,10 +103,37 @@ export async function createWorld(
   sun.shadow.normalBias = 0.04;
   sun.shadow.radius = 3;
   sun.shadow.intensity = 0.55;
-  scene.add(sun, new AmbientLight("#e8ecd8", 1.2));
+  const ambient = new AmbientLight("#e8ecd8", 1.2);
+  scene.add(sun, ambient);
 
   const landscape = createLandscape();
   scene.add(landscape.group);
+  // Grass uses a deliberately cheap native shader rather than the shared toon
+  // shader. Retain its source palette so Golden Hour never accumulates tint.
+  const grassLighting = new Map<
+    ShaderMaterial,
+    { name: string; base: Color; illumination: number }[]
+  >();
+  function captureGrassPalette() {
+    grassLighting.clear();
+    landscape.group.traverse((object) => {
+      if (!(object instanceof Mesh)) return;
+      const material = object.material;
+      if (!(material instanceof ShaderMaterial) || grassLighting.has(material))
+        return;
+      const names = ["uGrassLowA", "uGrassLowB", "uGrassHighA", "uGrassHighB"];
+      if (!material.uniforms.uGrassLowA) return;
+      grassLighting.set(
+        material,
+        names.map((name, i) => ({
+          name,
+          base: material.uniforms[name].value.clone(),
+          illumination: i < 2 ? 0.48 : 0.91,
+        })),
+      );
+    });
+  }
+  captureGrassPalette();
   const water = createWater();
   scene.add(water.mesh);
 
@@ -182,12 +213,34 @@ export async function createWorld(
   let disposed = false;
   let needsRender = true;
   const morningBackground = new Color("#d7e2cd");
-  const eveningBackground = new Color("#dbe0c6");
-  const morningSun = new Vector3(-5, 9, 5);
-  const eveningSun = new Vector3(-10, 4.7, 4.1);
+  const goldenSky = new Color("#edc58b");
+  const eveningBackground = morningBackground.clone().lerp(goldenSky, 0.38);
+  const morningSunColor = new Color("#fff1d3");
+  const goldenSunColor = new Color("#ffd09a");
+  const morningAmbient = new Color("#e8ecd8");
+  const goldenAmbient = new Color("#e6d4bd");
   const painting = createPainterly(renderer, scene, camera);
+  let lightJourney: { duration: number; startedAt: number | null } | null =
+    null;
+  let movieLoop: {
+    duration: number;
+    startedAt: number | null;
+    light: boolean;
+  } | null = null;
+  let nextWake = 0;
   const recorder = createVideoRecorder(artwork, {
-    onState: options.onRecording,
+    onState(state, time) {
+      if (
+        state === "recording" &&
+        lightJourney &&
+        lightJourney.startedAt === null
+      )
+        lightJourney.startedAt = performance.now() - time * 1000;
+      if (state === "recording" && movieLoop && movieLoop.startedAt === null) {
+        movieLoop.startedAt = performance.now() - time * 1000;
+      }
+      options.onRecording?.(state, time);
+    },
   });
   let recording = false;
   let currentStyle: VisualStyleId = "cel";
@@ -210,6 +263,15 @@ export async function createWorld(
   observer.observe(container);
   resize();
 
+  function sampleLoopWake(time: number, duration: number) {
+    const point = new Vector3();
+    const direction = new Vector3();
+    const u = (((0.76 + time / duration) % 1) + 1) % 1;
+    route.getPointAt(u, point);
+    route.getTangentAt(u, direction);
+    point.addScaledVector(direction, -1.1);
+    water.history.sample(time, point.x, point.z);
+  }
   function frame(stamp: number) {
     if (disposed || shaderFailed) return;
     const dt = lastStamp ? Math.min((stamp - lastStamp) / 1000, 0.08) : 0;
@@ -217,29 +279,84 @@ export async function createWorld(
     if (document.hidden) return;
     if (paused && !needsRender && Math.abs(targetWarmth - warmth) < 0.001)
       return;
-    warmth += (targetWarmth - warmth) * (1 - Math.exp(-dt * 3));
-    if (!paused) {
-      elapsed += dt;
-      distance = advanceDistance(distance, dt, 0.24, routeLength);
+    const loopDuration = movieLoop?.duration ?? LOOP_SECONDS;
+    if (movieLoop) {
+      const movieTime =
+        movieLoop.startedAt === null
+          ? 0
+          : Math.min(
+              loopDuration,
+              Math.max(0, (stamp - movieLoop.startedAt) / 1000),
+            );
+      elapsed = loopDuration + movieTime;
+      distance = routeLength * ((0.76 + movieTime / loopDuration) % 1);
+      warmth = movieLoop.light
+        ? loopWarmth(movieTime, loopDuration)
+        : targetWarmth;
+    } else {
+      if (lightJourney)
+        warmth = videoWarmth(
+          lightJourney.startedAt === null
+            ? 0
+            : (stamp - lightJourney.startedAt) / 1000,
+          lightJourney.duration,
+        );
+      else warmth += (targetWarmth - warmth) * (1 - Math.exp(-dt * 3));
+      if (!paused) {
+        elapsed += dt;
+        distance = advanceDistance(
+          distance, dt, routeLength / LOOP_SECONDS, routeLength,
+        );
+      }
     }
     route.getPointAt(distance / routeLength, position);
     route.getTangentAt(distance / routeLength, tangent);
     bird.position.copy(position);
-    bird.position.y = Math.sin(elapsed * 1.5) * 0.012 - 0.045;
+    bird.position.y =
+      Math.sin(loopPhase(elapsed, 1.5, loopDuration)) * 0.012 - 0.045;
     bird.rotation.y = Math.atan2(tangent.x, tangent.z);
-    bird.rotation.z = Math.sin(elapsed * 1.15) * 0.012;
+    bird.rotation.z = Math.sin(loopPhase(elapsed, 1.15, loopDuration)) * 0.012;
     tail.copy(position).addScaledVector(tangent, -1.1);
-    swanMotion.update(elapsed, activity);
-    atmosphere.update(elapsed, wind);
-    landscape.update(elapsed, wind);
+    swanMotion.update(elapsed, activity, loopDuration);
+    atmosphere.update(elapsed, wind, loopDuration);
+    landscape.update(elapsed, wind, loopDuration);
     updatePaletteLighting(elapsed, warmth);
-    water.update(elapsed, wind, warmth, position.x, position.z, tail.x, tail.z);
+    for (const [material, colors] of grassLighting) {
+      for (const { name, base, illumination } of colors) {
+        goldenSurface(
+          base,
+          warmth,
+          illumination,
+          material.uniforms[name].value,
+        );
+      }
+    }
+    if (movieLoop) {
+      while (nextWake <= elapsed + 1e-8) {
+        sampleLoopWake(nextWake, loopDuration);
+        nextWake += WAKE_INTERVAL;
+      }
+    }
+    water.update(
+      elapsed,
+      wind,
+      warmth,
+      position.x,
+      position.z,
+      tail.x,
+      tail.z,
+      loopDuration,
+      !!movieLoop,
+    );
     (scene.background as Color)
       .copy(morningBackground)
       .lerp(eveningBackground, warmth);
-    sun.position.copy(morningSun).lerp(eveningSun, warmth);
+    sunPosition(warmth, sun.position);
+    sun.color.copy(morningSunColor).lerp(goldenSunColor, warmth);
+    ambient.color.copy(morningAmbient).lerp(goldenAmbient, warmth);
+    sun.shadow.intensity = 0.55 + warmth * 0.1;
     painting.render();
-    paintPresentation(artwork, renderer.domElement, targetWarmth > 0.5);
+    paintPresentation(artwork, renderer.domElement, warmth);
     needsRender = false;
     if (Math.floor(elapsed) !== lastReadout) {
       lastReadout = Math.floor(elapsed);
@@ -283,8 +400,9 @@ export async function createWorld(
       if (!(id in palettes)) return;
       water.setPalette(id);
       landscape.setPalette(id);
+      captureGrassPalette();
       morningBackground.set(palettes[id].sky);
-      eveningBackground.set(palettes[id].sky).lerp(new Color("#eed9b3"), 0.12);
+      eveningBackground.set(palettes[id].sky).lerp(goldenSky, 0.38);
       needsRender = true;
     },
     setActivity(value: number) {
@@ -304,7 +422,7 @@ export async function createWorld(
       needsRender = true;
     },
     setWarmth(value: number) {
-      targetWarmth = value;
+      targetWarmth = lightingAmount(value);
       needsRender = true;
     },
     get videoSupported() {
@@ -316,11 +434,34 @@ export async function createWorld(
     stopVideo() {
       recorder.stop();
     },
-    async recordVideo(duration: number, audio?: MediaStream | null) {
+    async recordVideo(
+      duration: number,
+      audio?: MediaStream | null,
+      journey = false,
+      loop = false,
+      beforeCapture?: () => void | Promise<void>,
+    ) {
       if (recording) throw new Error("A video is already being recorded.");
       if (!recorder.supported)
         throw new Error("Video export is unavailable in this browser.");
       const wasPaused = paused;
+      const previousWarmth = warmth;
+      const previousTime = elapsed,
+        previousDistance = distance;
+      if (loop) {
+        duration = LOOP_SECONDS;
+        movieLoop = { duration, startedAt: null, light: journey };
+        water.history.reset();
+        const beginning = duration - WAKE_LIFETIME;
+        for (
+          let time = beginning;
+          time <= duration + 1e-8;
+          time += WAKE_INTERVAL
+        )
+          sampleLoopWake(time, duration);
+        nextWake = duration + WAKE_INTERVAL;
+      }
+      if (journey) lightJourney = { duration, startedAt: null };
       const pixelRatio = renderer.getPixelRatio();
       const aspect = container.clientWidth / container.clientHeight;
       const width = aspect < 0.9 ? 1080 : 1920;
@@ -336,8 +477,8 @@ export async function createWorld(
         painting.resize(width, height);
         frameLake(camera, width / height);
         needsRender = true;
-        painting.render();
-        paintPresentation(artwork, renderer.domElement, targetWarmth > 0.5);
+        frame(performance.now());
+        await beforeCapture?.();
         await recorder.start(
           duration,
           `crescent-lake-${currentStyle}-${width}x${height}`,
@@ -345,6 +486,14 @@ export async function createWorld(
         );
       } finally {
         recording = false;
+        if (lightJourney || movieLoop) warmth = previousWarmth;
+        if (movieLoop) {
+          elapsed = previousTime;
+          distance = previousDistance;
+          water.history.reset();
+        }
+        movieLoop = null;
+        lightJourney = null;
         paused = wasPaused;
         if (!disposed) {
           renderer.setPixelRatio(pixelRatio);
@@ -355,7 +504,7 @@ export async function createWorld(
     },
     async saveImage() {
       painting.render();
-      paintPresentation(artwork, renderer.domElement, targetWarmth > 0.5);
+      paintPresentation(artwork, renderer.domElement, warmth);
       const blob = await new Promise<Blob | null>((resolve) =>
         artwork.toBlob(resolve, "image/png"),
       );

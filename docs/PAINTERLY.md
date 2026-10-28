@@ -41,3 +41,20 @@ Low grass covers the entire bank in frustum-culled tiles. Taller near-shore tuft
 Cel uses a separate antialiased swan silhouette target. All swan meshes render white on layer 1; the mask pass restores renderer, camera and scene state in `finally`. Inside this mask, RGB Sobel edges are suppressed, so overlapping feathers no longer acquire additional ink. A thinner, lighter mask boundary retains the outside shape. The swan casts shadows but does not receive its own shadow, avoiding fine overlapping feather shadow artifacts. Quiet color areas use less posterization so small water marks survive. There is no blur pass.
 
 The final water language returns to lake-wide wavefronts after the user rejected both fine texture and isolated wake-like arc packets. Low-frequency domain warping bends long, sparse wavefronts and varies their spacing; a slowly moving coarse envelope softens their continuity. A narrow smooth crest and an offset, very faint shadow suggest ripples without the original bold stripe field. Maximum wind highlight blend is22.5%, using a color close to the water palette, not white. Broad low-frequency fields also bend reflections. There are no local ring centres, dense microtexture, foam or blur. Typography and paper framing are drawn by the final presentation canvas, identically for preview, PNG and video.
+
+## Softer water, grass and golden light — v0.4.1
+
+Each lake-wide crest now has its own hashed segment spacing and lengths. Segment ends taper over40% of their length; there are true gaps rather than a nonzero opacity floor. Adjacent crests have different break positions, avoiding shared clipping columns. Highlight blend is10% at100%wind and15% at200%, with reduced extra golden emphasis.
+
+Grass retains the same geometry and wind deformation. Its roots are lifted toward middle pigments, random hue spread is narrowed to28%, blade brightness spans98–100%, and the root-to-tip gradient gains a small lift. This reduces the black stipple feeling without blurring the lake or swan.
+
+Golden Hour lowers the sun and separately grades lit pigments, neutral feathers and cooler shadows. Native grass uses cached softened source colors, so switching palettes or returning to Morning cannot accumulate tint. The same golden response is shared between CPU grass colors and toon GLSL.
+
+
+## Closing the24-second scene — v0.5
+
+The swan completes its full closed route in24seconds, both in preview and film. Capture uses real recording time rather than integrated frame deltas. Morning warmth follows a cosine arch, reaching Golden at12seconds and returning to Morning at24seconds. Small animated details use integer numbers of cycles; moving noise samples follow a circular domain path. These constraints close positions, phases and first derivatives without a last-frame dissolve.
+
+Tree trunks pivot gently at fixed roots and crowns have independently phased sway. Swan wing hinges make several irregular, bounded flutter bursts per circuit, with rest at the seam;200% activity is capped at31degrees. Cloud wrapping occurs outside the portrait composition. Fixed-grid wake samples are prewarmed from the previous cycle. The faster bird's visible wake fades over6.72seconds to retain a trailing ribbon instead of outlining the complete route.
+
+Wind waves remain lake-wide, with irregular curved fronts, independent fragment lengths, translucent crests and broad feathered ends. Their visibility has increased from the preceding too-subtle pass while the mirror reflection remains intact. All visual review and final frame extraction use9:16.
