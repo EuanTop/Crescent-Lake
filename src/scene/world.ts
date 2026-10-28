@@ -22,6 +22,8 @@ import { createWater } from "./water";
 import { palettes, type PaletteId } from "./palettes";
 import { createSwanMotion } from "./swan";
 import { createAtmosphere } from "./atmosphere";
+import { createPainterly } from "./painterly";
+import type { VisualStyleId } from "./styles";
 
 export interface WorldOptions {
   onReady(): void;
@@ -39,6 +41,19 @@ export async function createWorld(
     preserveDrawingBuffer: true,
     powerPreference: "high-performance",
   });
+  let shaderFailed = false;
+  renderer.debug.onShaderError = (gl, program, vertex, fragment) => {
+    shaderFailed = true;
+    console.error(
+      "Lake shader compilation failed",
+      gl.getProgramInfoLog(program),
+      gl.getShaderInfoLog(vertex),
+      gl.getShaderInfoLog(fragment),
+    );
+    options.onError(
+      "This scene could not be rendered. Please refresh to try again.",
+    );
+  };
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = NoToneMapping;
@@ -161,6 +176,8 @@ export async function createWorld(
   const eveningBackground = new Color("#dbe0c6");
   const morningSun = new Vector3(-5, 9, 5);
   const eveningSun = new Vector3(-10, 4.7, 4.1);
+  const painting = createPainterly(renderer, scene, camera);
+  let currentStyle: VisualStyleId = "cel";
   const position = new Vector3();
   const tangent = new Vector3();
   const tail = new Vector3();
@@ -170,6 +187,7 @@ export async function createWorld(
     const { width, height } = container.getBoundingClientRect();
     if (width < 1 || height < 1) return;
     renderer.setSize(width, height, false);
+    painting.resize(width, height);
     const aspect = width / height;
     const halfHeight = aspect < 0.9 ? 9.6 : 8.7;
     camera.left = -halfHeight * aspect;
@@ -183,7 +201,7 @@ export async function createWorld(
   resize();
 
   function frame(stamp: number) {
-    if (disposed) return;
+    if (disposed || shaderFailed) return;
     const dt = lastStamp ? Math.min((stamp - lastStamp) / 1000, 0.08) : 0;
     lastStamp = stamp;
     if (document.hidden) return;
@@ -210,7 +228,7 @@ export async function createWorld(
       .copy(morningBackground)
       .lerp(eveningBackground, warmth);
     sun.position.copy(morningSun).lerp(eveningSun, warmth);
-    renderer.render(scene, camera);
+    painting.render();
     needsRender = false;
     if (Math.floor(elapsed) !== lastReadout) {
       lastReadout = Math.floor(elapsed);
@@ -219,8 +237,10 @@ export async function createWorld(
   }
   // Compile once so loading ends only after the first real frame is ready.
   frame(performance.now());
-  options.onReady();
-  renderer.setAnimationLoop(frame);
+  if (!shaderFailed) {
+    options.onReady();
+    renderer.setAnimationLoop(frame);
+  }
 
   const onContextLost = (event: Event) => {
     event.preventDefault();
@@ -238,6 +258,15 @@ export async function createWorld(
       paused = !paused;
       needsRender = true;
       return paused;
+    },
+    setStyle(id: VisualStyleId) {
+      currentStyle = id;
+      painting.setStyle(id);
+      needsRender = true;
+    },
+    setPainting(value: number) {
+      painting.setStrength(value);
+      needsRender = true;
     },
     setPalette(id: PaletteId) {
       if (!(id in palettes)) return;
@@ -268,7 +297,7 @@ export async function createWorld(
       needsRender = true;
     },
     async saveImage() {
-      renderer.render(scene, camera);
+      painting.render();
       const blob = await new Promise<Blob | null>((resolve) =>
         renderer.domElement.toBlob(resolve, "image/png"),
       );
@@ -276,7 +305,7 @@ export async function createWorld(
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "crescent-lake.png";
+      link.download = `crescent-lake-${currentStyle}.png`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
@@ -292,6 +321,7 @@ export async function createWorld(
       landscape.dispose();
       water.dispose();
       atmosphere.dispose();
+      painting.dispose();
       sun.shadow.dispose();
       bird.traverse((object) => {
         if (object instanceof Mesh) object.geometry.dispose();

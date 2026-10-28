@@ -1,7 +1,10 @@
 /** Pure motion helpers, independent of render speed and the graphics library. */
-export const WAKE_LIFETIME = 7;
-export const WAKE_INTERVAL = 0.25;
-export const WAKE_CAPACITY = 32;
+export const WAKE_LIFETIME = 22;
+export const WAKE_INTERVAL = 0.4;
+export const WAKE_CAPACITY = 64;
+export const WAKE_FADE_IN = 0.55;
+export const WAKE_FADE_OUT_START = 14;
+export const WAKE_DECAY = 0.025;
 
 export function advanceDistance(
   distance: number,
@@ -17,8 +20,32 @@ export function advanceDistance(
 }
 
 export function wakeStrength(age: number): number {
-  if (age < 0 || age >= WAKE_LIFETIME) return 0;
-  return Math.exp(-age * 0.44) * Math.min(1, age * 6);
+  if (!Number.isFinite(age) || age < 0 || age >= WAKE_LIFETIME) return 0;
+  const smooth = (value: number): number => {
+    const t = Math.min(1, Math.max(0, value));
+    return t * t * (3 - 2 * t);
+  };
+  return (
+    Math.exp(-age * WAKE_DECAY) *
+    smooth(age / WAKE_FADE_IN) *
+    (1 -
+      smooth(
+        (age - WAKE_FADE_OUT_START) / (WAKE_LIFETIME - WAKE_FADE_OUT_START),
+      ))
+  );
+}
+
+/** Integrate traveling wind phase: a slider change changes velocity, not phase. */
+export function advanceWindPhase(
+  phase: number,
+  dt: number,
+  wind: number,
+): number {
+  const current = Number.isFinite(phase) ? phase : 0;
+  if (!Number.isFinite(dt) || dt <= 0) return current;
+  const strength = Number.isFinite(wind) ? Math.min(1, Math.max(0, wind)) : 0;
+  const next = current + dt * (0.16 * strength + 0.88 * strength * strength);
+  return Number.isFinite(next) ? next : current;
 }
 
 export interface WakePoint {
@@ -31,19 +58,52 @@ export interface WakePoint {
 export class WakeHistory {
   readonly points: WakePoint[] = [];
   private lastEmission = -Infinity;
+  private lastObservedTime = -Infinity;
+  private readonly directions = new WeakMap<
+    WakePoint,
+    Readonly<{ x: number; z: number }>
+  >();
+  private direction: Readonly<{ x: number; z: number }> = { x: 0, z: 1 };
 
   sample(time: number, x: number, z: number): boolean {
+    if (
+      !Number.isFinite(time) ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(z) ||
+      time < 0
+    )
+      return false;
+    // Rewinding a scene must not leave future-born ripples or an emission lock.
+    if (time < this.lastObservedTime) this.reset();
+    this.lastObservedTime = time;
     while (this.points.length && time - this.points[0].born >= WAKE_LIFETIME)
       this.points.shift();
-    if (time - this.lastEmission < WAKE_INTERVAL) return false;
-    this.points.push({ x, z, born: time });
+    if (time - this.lastEmission + 1e-9 < WAKE_INTERVAL) return false;
+    const previous = this.points.at(-1);
+    if (previous) {
+      const dx = x - previous.x,
+        dz = z - previous.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance > 0.0001)
+        this.direction = { x: dx / distance, z: dz / distance };
+    }
+    const point = { x, z, born: time };
+    this.points.push(point);
+    this.directions.set(point, this.direction);
     if (this.points.length > WAKE_CAPACITY) this.points.shift();
     this.lastEmission = time;
     return true;
   }
 
+  /** Heading at emission stays attached to that world-space wake after turns. */
+  directionFor(point: WakePoint): Readonly<{ x: number; z: number }> {
+    return this.directions.get(point) ?? this.direction;
+  }
+
   reset(): void {
     this.points.length = 0;
     this.lastEmission = -Infinity;
+    this.lastObservedTime = -Infinity;
+    this.direction = { x: 0, z: 1 };
   }
 }

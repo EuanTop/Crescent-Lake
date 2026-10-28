@@ -57,6 +57,13 @@ export function createLandscape(): {
     0.23 + 0.07 * Math.sin(z * 1.2) + 0.04 * Math.sin(z * 3.7);
   const shoreOuter = (z: number): number => boundary(z) + shoreWidth(z);
 
+  const bankHeight = (x: number, z: number): number => {
+    const u = THREE.MathUtils.clamp((x + 48) / (boundary(z) + 48), 0, 1);
+    return (
+      0.18 + 0.09 * (1 - u) * Math.sin(z * 0.38) + 0.09 * Math.sin(u * Math.PI)
+    );
+  };
+
   // Parallel strips make a soft bank and a narrow, pale waterline.
   const strip = (
     left: (z: number) => number,
@@ -98,10 +105,7 @@ export function createLandscape(): {
     strip(
       () => -48,
       boundary,
-      (u, z) =>
-        0.18 +
-        0.09 * (1 - u) * Math.sin(z * 0.38) +
-        0.09 * Math.sin(u * Math.PI),
+      (u, z) => bankHeight(THREE.MathUtils.lerp(-48, boundary(z), u), z),
     ),
     bankMaterial,
   );
@@ -218,7 +222,10 @@ export function createLandscape(): {
           float flutter = sin(uTime*(2.5+phase*1.7) + phase*31. + aBladePhase + root.x*.3);
           float tip = aGrowth*aGrowth;
           float stiffness = mix(.82,1.18,phase);
-          float amplitude = uWind*(.38+.45*uWind)*stiffness;
+          // Short meadow blades bend with the same gust, at their own scale.
+          float stemHeight = length(instanceMatrix[1].xyz) * position.y / max(aGrowth,.001);
+          float bladeScale = clamp(stemHeight/.36,.2,1.35);
+          float amplitude = uWind*(.38+.45*uWind)*stiffness*bladeScale;
           vec2 bend = vec2(.93,.36)*breeze + vec2(-.36,.93)*flutter*.16*aGrowth;
           world.xz += bend * tip * amplitude;
           world.y -= length(bend) * tip * amplitude * .13;
@@ -249,7 +256,9 @@ export function createLandscape(): {
   grass.name = "Living grass — curved blades and traveling gusts";
   const transform = new THREE.Object3D();
   for (let i = 0; i < count; i++) {
-    const z = -12.3 + random() * 24.6;
+    // Bell-shaped coverage has no straight end line at the old z=±12 edge.
+    // Fine detail gradually gives way to the continuous low meadow.
+    const z = (random() + random() + random() - 1.5) * 21.5;
     let depth =
       random() < 0.69
         ? 0.04 + Math.pow(random(), 1.7) * 2.2
@@ -260,8 +269,10 @@ export function createLandscape(): {
     depth += patch * 0.22;
     const x = boundary(z) - depth;
     const fringe = depth < 0.38;
-    const size = (fringe ? 0.52 : 0.64) + random() * (fringe ? 0.67 : 0.9);
-    transform.position.set(x, 0.18, z);
+    const inlandBlend = 1 - THREE.MathUtils.smoothstep(depth, 4.0, 7.5);
+    const size =
+      ((fringe ? 0.52 : 0.64) + random() * (fringe ? 0.67 : 0.9)) * inlandBlend;
+    transform.position.set(x, bankHeight(x, z) - 0.008, z);
     transform.rotation.set(
       (random() - 0.5) * 0.12,
       random() * Math.PI * 2,
@@ -280,6 +291,114 @@ export function createLandscape(): {
   // The shader displaces vertices beyond the static geometry bound.
   if (grass.boundingSphere) grass.boundingSphere.radius += 1.5;
   group.add(grass);
+
+  // A continuous low meadow fills the whole bank, not only the detailed ribbon
+  // near the water. Jittered cells guarantee coverage without lawn-like rows;
+  // gradual height patches never remove a large piece of vegetation.
+  const meadowVertices: number[] = [];
+  const meadowGrowth: number[] = [];
+  const meadowPhases: number[] = [];
+  const meadowIndices: number[] = [];
+  for (let blade = 0; blade < 2; blade++) {
+    const angle = blade * 1.89 + 0.27;
+    const height = blade === 0 ? 0.24 : 0.3;
+    const start = meadowVertices.length / 3;
+    for (let level = 0; level <= 3; level++) {
+      const t = level / 3;
+      const arc = t * t * 0.1;
+      const width = 0.052 * (1 - t) * (0.82 + Math.sin(t * Math.PI) * 0.4);
+      for (const side of [-1, 1]) {
+        meadowVertices.push(
+          Math.cos(angle) * arc + Math.sin(angle) * width * side,
+          height * t,
+          Math.sin(angle) * arc - Math.cos(angle) * width * side,
+        );
+        meadowGrowth.push(t);
+        meadowPhases.push(blade * 2.37);
+      }
+    }
+    for (let level = 0; level < 3; level++) {
+      const a = start + level * 2;
+      meadowIndices.push(a, a + 2, a + 1, a + 2, a + 3, a + 1);
+    }
+  }
+  const meadowGeometry = geometry(new THREE.BufferGeometry());
+  meadowGeometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(meadowVertices, 3),
+  );
+  meadowGeometry.setAttribute(
+    "aGrowth",
+    new THREE.Float32BufferAttribute(meadowGrowth, 1),
+  );
+  meadowGeometry.setAttribute(
+    "aBladePhase",
+    new THREE.Float32BufferAttribute(meadowPhases, 1),
+  );
+  meadowGeometry.setIndex(meadowIndices);
+  const meadowTiles: THREE.InstancedMesh[] = [];
+  const savedSeed = seed;
+  seed = 184371;
+  const tileSize = 7;
+  const cellSize = 0.32;
+  const cells = Math.ceil(tileSize / cellSize);
+  for (let tileZ = -42; tileZ < 42; tileZ += tileSize) {
+    for (let tileX = -48; tileX < -4; tileX += tileSize) {
+      const placements: { x: number; z: number; size: number; yaw: number }[] =
+        [];
+      for (let row = 0; row < cells; row++) {
+        for (let col = 0; col < cells; col++) {
+          const x = tileX + ((col + 0.12 + random() * 0.76) / cells) * tileSize;
+          const z = tileZ + ((row + 0.12 + random() * 0.76) / cells) * tileSize;
+          if (x > boundary(z) - 0.1) continue;
+          const patch =
+            0.5 +
+            0.5 *
+              Math.sin(x * 0.71 + Math.sin(z * 0.47)) *
+              Math.sin(z * 0.81 - x * 0.23);
+          // A few small pinholes break up the field without broad bald slabs.
+          if (random() < 0.035 + patch * 0.045) continue;
+          placements.push({
+            x,
+            z,
+            size: 0.62 + patch * 0.3 + random() * 0.42,
+            yaw: random() * Math.PI * 2,
+          });
+        }
+      }
+      if (!placements.length) continue;
+      const tile = new THREE.InstancedMesh(
+        meadowGeometry,
+        grassMaterial,
+        placements.length,
+      );
+      tile.name = `Meadow ${tileX},${tileZ}`;
+      // Put each batch at its own centre so Three.js can cull distant tiles.
+      tile.position.set(tileX + tileSize * 0.5, 0, tileZ + tileSize * 0.5);
+      placements.forEach(({ x, z, size, yaw }, i) => {
+        transform.position.set(
+          x - tile.position.x,
+          bankHeight(x, z) - 0.008,
+          z - tile.position.z,
+        );
+        transform.rotation.set(
+          (random() - 0.5) * 0.09,
+          yaw,
+          (random() - 0.5) * 0.09,
+        );
+        transform.scale.set(size, size * (0.79 + random() * 0.38), size);
+        transform.updateMatrix();
+        tile.setMatrixAt(i, transform.matrix);
+      });
+      tile.instanceMatrix.needsUpdate = true;
+      tile.computeBoundingSphere();
+      if (tile.boundingSphere) tile.boundingSphere.radius += 0.85;
+      meadowTiles.push(tile);
+      group.add(tile);
+    }
+  }
+  // Preserve the authored stones/flowers/tree variation when meadow density changes.
+  seed = savedSeed;
 
   const pebbleGeometry = geometry(new THREE.SphereGeometry(1, 9, 6));
   for (let i = 0; i < 24; i++) {
@@ -465,6 +584,7 @@ export function createLandscape(): {
       geometries.forEach((value) => value.dispose());
       materials.forEach((value) => value.dispose());
       grass.dispose();
+      meadowTiles.forEach((tile) => tile.dispose());
       flowers.dispose();
       centers.dispose();
       group.clear();

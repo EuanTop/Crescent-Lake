@@ -1,6 +1,17 @@
 # Validation
 
-## Living landscape — 2026-10-28
+## Portrait visual languages — 2026-10-28
+
+- All later visual review uses a live 9:16 iframe viewport in `/review.html`; narrow-screen artwork also uses 9:16. No horizontal scene comparison is used for the final six-style review.
+- Six shader treatments and Original were selected through Arc's native UI on the same paused frame, Blue Reverie palette, 65% effect strength. Seven actual canvas PNG downloads were retained. All are 843 × 1499 (the one-pixel aspect rounding is from the canvas size).
+- The six exports were visually inspected: Cel Illustration, Watercolor, Risograph, Copperplate, Pixel Story and Cyanotype. Swan, reflection and persistent wake render in each; near and inland grass have continuous coverage. Pixel Story intentionally reduces spatial detail to hard pixel blocks.
+- The initially prototyped Kuwahara treatment was rejected by the user for blurring and removed. Final alternatives do not spatially average colors; neighborhood reads extract edges only, and Original bypasses post-processing.
+- Real rendering exposed and fixed two shader-compiler issues that TypeScript cannot detect: the reserved GLSL token `patch` in water and a `luminance` function collision with Three.js. The successful exports verify the corrected water and common style program render. A shader-error callback now reports failures instead of treating a partial frame as ready.
+- Wind phase and 22-second wake behavior have ten passing automated tests in total, including readable 10–15-second marks, smooth expiration, whole-lifetime capacity, historical headings through turns, zero-wind freezing and phase continuity on slider changes.
+- Production build includes both the main page and portrait review page. Runtime presets retain all three color stories. PNG filenames identify the chosen filter.
+- Arc extension control was unstable, and its viewport override did not complete. Final review continued through Arc's native UI using the fixed portrait iframe; no alternate browser was used. Exports are in ignored `artifacts/`, along with a self-contained `filter-comparison.html`.
+
+## Living landscape — 2026-10-28 (v0.2 history)
 
 - TypeScript checking and Vite production build pass.
 - Five automated tests pass: the self-contained GLB, frame-rate-independent travel, route wrap and pause, bounded world-space wake history, and the new wing rig.

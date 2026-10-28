@@ -36,3 +36,8 @@ The second iteration preserves the original composition and adds two color stori
 The shore uses a finer irregular boundary and a low damp transition. Five tapered, curved ribbons form each grass tuft. A smooth world-space noise field travels over the bank; blade-specific phases add flutter, so movement is coherent at the scale of a gust and varied at the scale of a leaf. Randomness is seeded during construction and sampled continuously in time, preventing frame-to-frame flicker.
 
 The swan's wing parts articulate around shoulder pivots, with restrained intermittent stretches and settling. Clouds and a small flock add independent overhead movement within the existing elevated view. All motion shares the same scene clock so pause freezes the whole composition. All visible interface copy is English, and settings live in one collapsible right-hand panel.
+
+
+## Portrait visual language studies — v0.3
+
+The first smoothing-based painterly experiment was rejected as too blurry. Six sharper, deliberately different GL treatments now provide a choice, reviewed in a fixed 9:16 live viewport. See [algorithm research and implementation notes](PAINTERLY.md) for sources, actual approximations and tradeoffs. Wind bands, 22-second wakes and continuous bank planting are carried into every style.

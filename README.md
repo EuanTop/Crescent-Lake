@@ -13,6 +13,8 @@ npm ci
 npm run dev
 ```
 
+For social-video testing, open `/review.html` on the local server. It contains the actual page in a fixed 9:16 iframe viewport, so the scene, camera and controls are tested in portrait regardless of the surrounding browser window.
+
 For a fixed preview address:
 
 ```sh
@@ -35,11 +37,14 @@ Open the **=** button at the right edge. Close with the × button, Escape, or a 
 
 - **Color story**: Soft Sage retains the original painted palette; Blue Reverie adds cobalt water and cool vegetation; Wild River adds olive water and a verdant shore. Water, reflections, grass, trees, rocks and shoreline change together.
 - **Light**: Morning or Golden hour, with a smooth change of light and shadow direction.
-- **Wind strength**: controls traveling gusts, grass-tip flutter and water ripples. Still removes all grass displacement; Windy makes the gusts clearly visible.
+- **Visual language**: choose Original, Cel Illustration, Watercolor, Risograph, Copperplate, Pixel Story or Cyanotype. Six distinct shader approaches preserve sharp contours; Effect strength adjusts their intensity. See [algorithm and design notes](docs/PAINTERLY.md).
+- **Wind strength**: controls traveling gusts, grass-tip flutter and water ripples. Still removes all grass displacement; Windy makes grass gusts and moving directional lake bands clearly visible.
 - **Swan movement**: adjusts gentle breathing, wing settling and occasional stretches.
 - **Passing overhead**: independently show or hide drifting clouds and flying birds.
 - **Pause / Resume**: freezes the swan, grass, clouds, birds, water and wakes together. Settings remain adjustable. Repeated drawing stops once the scene is stable.
 - **Save image**: exports a PNG of the current three-dimensional scene, without page text or controls.
+
+On narrow screens, the artwork itself uses a 9:16 portrait aspect ratio for social-video review.
 
 The system's reduced-motion preference starts the scene paused. Playback can still be started manually.
 
@@ -50,6 +55,8 @@ The system's reduced-motion preference starts the scene paused. Playback can sti
 | `src/scene/world.ts`      | Camera, lighting, model loading, swimming route and lifecycle      |
 | `src/scene/palettes.ts`   | Three named color stories and lake colors                          |
 | `src/scene/materials.ts`  | Four-band painted lighting and shadows                             |
+| `src/scene/painterly.ts`  | Six sharp post-processing treatments and output conversion         |
+| `src/scene/styles.ts`     | Filter names and algorithm metadata                                |
 | `src/scene/water.ts`      | Planar reflection, procedural ripples and world-space wakes        |
 | `src/scene/landscape.ts`  | Irregular shore, trees, curved instanced grass and traveling gusts |
 | `src/scene/swan.ts`       | Wing articulation, breathing and stretching                        |
@@ -70,6 +77,6 @@ The original generator uses swept curves, ellipsoids, feather surfaces and a con
 
 ## Scope
 
-Ripples and wind are visual approximations rather than fluid simulation. The swan follows a designed closed path. Animation articulates model parts without a skeletal neck rig. Styling comes from authored shapes, color bands and lighting; no full-screen painterly filter is enabled. Desktop and emulated mobile checks do not establish physical-phone performance or battery usage.
+Ripples and wind are visual approximations rather than fluid simulation. The swan follows a designed closed path. Animation articulates model parts without a skeletal neck rig. Styling comes from authored shapes, color bands and lighting; six optional scene filters provide distinct visual treatments. Desktop and emulated mobile checks do not establish physical-phone performance or battery usage.
 
 The project is committed locally; no remote repository has been created or pushed. See [design notes](docs/DESIGN.md) and [validation](docs/VALIDATION.md).

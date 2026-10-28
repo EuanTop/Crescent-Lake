@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   advanceDistance,
+  advanceWindPhase,
   WAKE_CAPACITY,
+  WAKE_INTERVAL,
   WAKE_LIFETIME,
   WakeHistory,
   wakeStrength,
@@ -37,4 +39,93 @@ test("wake history is bounded, removes expired points, and never produces a prem
   assert.equal(wakeStrength(-1), 0);
   assert.equal(wakeStrength(WAKE_LIFETIME), 0);
   assert.ok(wakeStrength(1) > wakeStrength(5));
+});
+
+test("the trail retains readable marks at 10–15 seconds, then fades smoothly to zero", () => {
+  const history = new WakeHistory();
+  for (let i = 0; i <= 50; i++)
+    history.sample(i * WAKE_INTERVAL, i * 0.1, Math.sin(i * 0.04));
+  const oldAges = history.points.map((point) => 20 - point.born);
+  assert.ok(oldAges.some((age) => age >= 14 && age <= 16));
+  assert.ok(oldAges.some((age) => age >= 10 && age <= 11));
+  assert.ok(wakeStrength(10) > 0.65);
+  assert.ok(wakeStrength(15) > 0.5);
+  assert.ok(wakeStrength(20) > 0.05 && wakeStrength(20) < 0.15);
+
+  let previous = wakeStrength(10);
+  for (let age = 10.01; age < WAKE_LIFETIME; age += 0.01) {
+    const current = wakeStrength(age);
+    assert.ok(current >= 0 && current <= previous + 1e-12);
+    previous = current;
+  }
+  // Both sides of the removal boundary agree, with a vanishing final slope.
+  assert.ok(wakeStrength(WAKE_LIFETIME - 0.001) < 1e-6);
+  assert.ok(
+    wakeStrength(WAKE_LIFETIME - 0.002) - wakeStrength(WAKE_LIFETIME - 0.001) <
+      1e-6,
+  );
+  assert.equal(wakeStrength(WAKE_LIFETIME), 0);
+  history.sample(WAKE_LIFETIME, 9, 9);
+  assert.ok(history.points.every((point) => point.born > 0));
+});
+
+test("capacity covers the whole lifetime instead of discarding a still-visible wake", () => {
+  assert.ok(WAKE_CAPACITY * WAKE_INTERVAL >= WAKE_LIFETIME + WAKE_INTERVAL);
+  const history = new WakeHistory();
+  const sampleCount = Math.ceil(WAKE_LIFETIME / WAKE_INTERVAL);
+  for (let i = 0; i < sampleCount; i++) history.sample(i * WAKE_INTERVAL, i, 0);
+  assert.equal(history.points.length, sampleCount);
+  assert.equal(history.points[0].born, 0);
+  const time = (sampleCount - 1) * WAKE_INTERVAL;
+  assert.ok(
+    history.points.every(
+      (point) => time - point.born >= 0 && time - point.born < WAKE_LIFETIME,
+    ),
+  );
+});
+
+test("invalid ages and samples are harmless, and rewinding removes future-born wakes", () => {
+  for (const age of [NaN, Infinity, -Infinity, -0.1, WAKE_LIFETIME + 1])
+    assert.equal(wakeStrength(age), 0);
+  const history = new WakeHistory();
+  assert.equal(history.sample(NaN, 0, 0), false);
+  assert.equal(history.sample(0, Infinity, 0), false);
+  assert.equal(history.sample(-1, 0, 0), false);
+  assert.equal(history.points.length, 0);
+  history.sample(12, 5, 8);
+  history.sample(13, 6, 8);
+  assert.equal(history.sample(1, 2, 3), true);
+  assert.deepEqual(history.points, [{ x: 2, z: 3, born: 1 }]);
+  assert.equal(history.sample(1, 99, 99), false);
+});
+
+test("a turn leaves old wake headings and positions in world space", () => {
+  const history = new WakeHistory();
+  history.sample(0, 0, 0);
+  history.sample(0.4, 1, 0);
+  const east = history.points[1];
+  history.sample(0.8, 1, 1);
+  assert.deepEqual(history.directionFor(east), { x: 1, z: 0 });
+  assert.deepEqual(history.directionFor(history.points[2]), { x: 0, z: 1 });
+  assert.deepEqual(east, { x: 1, z: 0, born: 0.4 });
+});
+
+test("wind travels visibly at full strength, freezes at zero, and never jumps when the slider changes", () => {
+  const initial = 4.25;
+  assert.equal(advanceWindPhase(initial, 0, 1), initial);
+  assert.equal(advanceWindPhase(initial, 0, 0), initial);
+  assert.equal(advanceWindPhase(initial, 10, 0), initial);
+  assert.ok(advanceWindPhase(initial, 10, 1) - initial > 10);
+  assert.equal(advanceWindPhase(initial, NaN, 1), initial);
+  assert.equal(advanceWindPhase(initial, 1, NaN), initial);
+
+  const integrate = (fps: number): number => {
+    let phase = 0;
+    for (let frame = 0; frame < fps * 6; frame++) {
+      const t = frame / fps;
+      phase = advanceWindPhase(phase, 1 / fps, t < 2 ? 0.25 : t < 5 ? 1 : 0);
+    }
+    return phase;
+  };
+  assert.ok(Math.abs(integrate(30) - integrate(120)) < 1e-10);
 });
