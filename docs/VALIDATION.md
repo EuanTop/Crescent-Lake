@@ -1,5 +1,13 @@
 # Validation
 
+## Native4K and lossless master —2026-10-28(v0.6)
+
+- User explicitly selected the built-in browser for this export. The same5173 development server was restarted to load the new local middleware. Its lossless capability, selected native4K profile and final download links were verified in the built-in browser. The9:16 artwork retained its controls-free title layout,24-second route/light cycle, restored fan wakes and quick wing bouts.
+- The actual master is2160×3840 FFV1 full-range RGB (`bgr0`),30fps,720frames,24.000000seconds,1,750,974,990bytes. The original48kHz stereo float PCM is muxed without live capture. Every one of720RGBA hashes from a full decode matches the exact input-render hash; no frame was dropped, upscaled or chroma-subsampled. PCM contains1,152,000stereo frames, equal endpoint samples in both channels and peak−17.49dBFS.
+- A separate101,486,776-byte H.264/AAC MP4 is also2160×3840,30fps and24.000000seconds, generated from the master at CRF16. Its share encoding is intentionally distinguished from the lossless master. Friendly artifact paths use hard links to avoid duplicating the1.75GB master.
+- Real FFmpeg fixture tests prove RGB/PCM byte identity and verify codec metadata, color conversion, hash manifests, file persistence, body/profile/origin validation, ordering, errors, cancellation and cleanup. Client tests cover exact frame times, ordered raw uploads, cancellation and surfaced errors. Browser-capture tests cover24/80Mbps targets, codec negotiation and resource cleanup.
+- Proof: `artifacts/4k-export-ready.png`, full decode hash list and `artifacts/4k-validation.json`. All77tests, the production build and diff whitespace checks pass after final review.
+
 ## Sudden wing-shaking bouts — 2026-10-28 (v0.5.2)
 
 - Replaced the broad2.15-second slow-sway envelope with0.7–0.9-second bouts of3or4quick strokes, approximately0.22–0.25seconds apart. A60ms entrance and120ms settling envelope create a sudden start and clean tuck. Each bout has several seconds of quiet swimming afterward. Default lift reaches about36degrees, bounded at38;200% is bounded at50. A small fore/aft feather motion accompanies the shoulder lift.

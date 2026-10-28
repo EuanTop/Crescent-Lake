@@ -30,6 +30,8 @@ import { frameLake } from "./framing";
 import { createVideoRecorder, type RecordingState } from "./recording";
 import type { VisualStyleId } from "./styles";
 import { goldenSurface, lightingAmount, sunPosition } from "./lighting";
+import { videoQuality, type VideoQuality } from "./export-quality";
+import { exportMasterFrames } from "./master-export";
 
 export interface WorldOptions {
   onReady(): void;
@@ -243,6 +245,8 @@ export async function createWorld(
     },
   });
   let recording = false;
+  let masterController: AbortController | null = null;
+  let masterFrameTime: number | null = null;
   let currentStyle: VisualStyleId = "cel";
   const position = new Vector3();
   const tangent = new Vector3();
@@ -273,21 +277,21 @@ export async function createWorld(
     water.history.sample(time * wakeTiming.timeScale, point.x, point.z);
   }
   function frame(stamp: number) {
-    if (disposed || shaderFailed) return;
+    if (disposed || shaderFailed || (masterController && masterFrameTime === null)) return;
     const dt = lastStamp ? Math.min((stamp - lastStamp) / 1000, 0.08) : 0;
     lastStamp = stamp;
-    if (document.hidden) return;
+    if (document.hidden && !masterController) return;
     if (paused && !needsRender && Math.abs(targetWarmth - warmth) < 0.001)
       return;
     const loopDuration = movieLoop?.duration ?? LOOP_SECONDS;
     if (movieLoop) {
-      const movieTime =
+      const movieTime = masterFrameTime ?? (
         movieLoop.startedAt === null
           ? 0
           : Math.min(
               loopDuration,
               Math.max(0, (stamp - movieLoop.startedAt) / 1000),
-            );
+            ));
       elapsed = loopDuration + movieTime;
       distance = routeLength * ((0.76 + movieTime / loopDuration) % 1);
       warmth = movieLoop.light
@@ -430,7 +434,64 @@ export async function createWorld(
       return recorder.format;
     },
     stopVideo() {
+      masterController?.abort();
       recorder.stop();
+    },
+    async exportMaster(audio?: Blob, journey = true,
+      onProgress?: (frame: number, frames: number, finishing: boolean) => void) {
+      if (recording) throw new Error("A film is already being created.");
+      const profile = videoQuality("4k", container.clientWidth / container.clientHeight < .9);
+      const previous = { paused, warmth, time: elapsed, distance, pixelRatio: renderer.getPixelRatio() };
+      const reflection = water.mesh.getRenderTarget();
+      const previousReflection = { width: reflection.width, height: reflection.height };
+      recording = true;
+      masterController = new AbortController();
+      movieLoop = { duration: LOOP_SECONDS, startedAt: null, light: journey };
+      water.history.reset();
+      for (let t = LOOP_SECONDS - wakeTiming.lifetime; t <= LOOP_SECONDS + 1e-8; t += wakeTiming.interval)
+        sampleLoopWake(t, LOOP_SECONDS);
+      nextWake = LOOP_SECONDS + wakeTiming.interval;
+      try {
+        paused = false;
+        renderer.setPixelRatio(2);
+        renderer.setSize(profile.width / 2, profile.height / 2, false);
+        artwork.width = profile.width;
+        artwork.height = profile.height;
+        painting.resize(profile.width / 2, profile.height / 2);
+        reflection.setSize(profile.width, profile.height);
+        frameLake(camera, profile.width / profile.height);
+        const context = artwork.getContext("2d")!;
+        return await exportMasterFrames({ ...profile, duration: LOOP_SECONDS, audio,
+          signal: masterController.signal,
+          render(time) {
+            masterFrameTime = time;
+            try {
+              frame(performance.now());
+              if (shaderFailed || renderer.getContext().isContextLost())
+                throw new Error("The scene could not render at4K. Please try HD export.");
+              return context.getImageData(0, 0, profile.width, profile.height).data;
+            } finally { masterFrameTime = null; }
+          },
+          onProgress: onProgress ?? (() => undefined),
+        });
+      } finally {
+        masterController = null;
+        masterFrameTime = null;
+        recording = false;
+        movieLoop = null;
+        warmth = previous.warmth;
+        elapsed = previous.time;
+        distance = previous.distance;
+        paused = previous.paused;
+        water.history.reset();
+        nextWake = elapsed;
+        if (!disposed) {
+          renderer.setPixelRatio(previous.pixelRatio);
+          reflection.setSize(previousReflection.width, previousReflection.height);
+          resize();
+          lastStamp = performance.now();
+        }
+      }
     },
     async recordVideo(
       duration: number,
@@ -438,6 +499,7 @@ export async function createWorld(
       journey = false,
       loop = false,
       beforeCapture?: () => void | Promise<void>,
+      quality: VideoQuality = "4k",
     ) {
       if (recording) throw new Error("A video is already being recorded.");
       if (!recorder.supported)
@@ -462,17 +524,21 @@ export async function createWorld(
       if (journey) lightJourney = { duration, startedAt: null };
       const pixelRatio = renderer.getPixelRatio();
       const aspect = container.clientWidth / container.clientHeight;
-      const width = aspect < 0.9 ? 1080 : 1920;
-      const height = aspect < 0.9 ? 1920 : 1080;
+      const profile = videoQuality(quality, aspect < .9);
+      const { width, height } = profile;
+      const ratio = quality === "4k" ? 2 : 1;
+      const reflection = water.mesh.getRenderTarget();
+      const reflectionSize = { width: reflection.width, height: reflection.height };
       recording = true;
       try {
         paused = false;
         lastStamp = performance.now();
-        renderer.setPixelRatio(1);
-        renderer.setSize(width, height, false);
+        renderer.setPixelRatio(ratio);
+        renderer.setSize(width / ratio, height / ratio, false);
+        reflection.setSize(width, height);
         artwork.width = width;
         artwork.height = height;
-        painting.resize(width, height);
+        painting.resize(width / ratio, height / ratio);
         frameLake(camera, width / height);
         needsRender = true;
         frame(performance.now());
@@ -481,6 +547,7 @@ export async function createWorld(
           duration,
           `crescent-lake-${currentStyle}-${width}x${height}`,
           audio,
+          { videoBitsPerSecond: profile.videoBitsPerSecond, fps: profile.fps },
         );
       } finally {
         recording = false;
@@ -496,6 +563,7 @@ export async function createWorld(
         paused = wasPaused;
         if (!disposed) {
           renderer.setPixelRatio(pixelRatio);
+          reflection.setSize(reflectionSize.width, reflectionSize.height);
           resize();
           lastStamp = performance.now();
         }
@@ -518,6 +586,7 @@ export async function createWorld(
     dispose() {
       if (disposed) return;
       disposed = true;
+      masterController?.abort();
       recorder.dispose();
       renderer.setAnimationLoop(null);
       observer.disconnect();

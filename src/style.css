@@ -898,3 +898,7 @@ body.is-recording .notice {
 .panel-footnote {
   font-family: "Goudy Bookletter", Georgia, serif;
 }
+
+.export-downloads:not([hidden]) { display: grid; gap: 10px; margin: 16px 0; }
+.export-downloads a { display: block; text-align: center; text-decoration: none; }
+#video-quality { max-width: 72%; }

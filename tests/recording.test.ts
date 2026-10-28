@@ -31,6 +31,7 @@ function browser(t: TestContext) {
   class FakeRecorder {
     static allowed = new Set(["video/mp4", "video/webm;codecs=vp9"]);
     static failStart = new Set<string>();
+    static failAfterStart = new Set<string>();
     static empty = false;
     static instances: FakeRecorder[] = [];
     static isTypeSupported(mime: string) { return FakeRecorder.allowed.has(mime); }
@@ -40,7 +41,9 @@ function browser(t: TestContext) {
     ondataavailable: ((event: { data: Blob }) => void) | null = null;
     onstop: (() => void) | null = null;
     onerror: ((event: Event) => void) | null = null;
-    constructor(_stream: unknown, options: { mimeType: string }) {
+    options: { mimeType: string; videoBitsPerSecond?: number; audioBitsPerSecond?: number };
+    constructor(_stream: unknown, options: { mimeType: string; videoBitsPerSecond?: number; audioBitsPerSecond?: number }) {
+      this.options = { ...options };
       this.mimeType = options.mimeType;
       FakeRecorder.instances.push(this);
     }
@@ -48,6 +51,7 @@ function browser(t: TestContext) {
       assert.equal(timeslice, 250);
       if (FakeRecorder.failStart.has(this.mimeType)) throw new Error("encoder unavailable");
       this.state = "recording";
+      if (FakeRecorder.failAfterStart.has(this.mimeType)) throw new Error("encoder unavailable after start");
     }
     stop() {
       this.stopCount++;
@@ -236,4 +240,94 @@ test("finishing or cancelling an audio recording stops only cloned music tracks"
   assert.ok(clones.every((track) => track.stopped === 1));
   assert.equal(env.tracks[2].stopped, 1);
   assert.equal(original.stopped, 0, "disposing the recorder must preserve the synthesizer's source track");
+});
+
+
+test("recording options request HD/4K bitrate hints within safe bounds and keep the 30fps export clock", async (t) => {
+  const env = browser(t);
+  const cases = [
+    { options: undefined, expected: 24_000_000 },
+    { options: { videoBitsPerSecond: 80_000_000, fps: 60 }, expected: 80_000_000 },
+    { options: { videoBitsPerSecond: NaN, fps: NaN }, expected: 24_000_000 },
+    { options: { videoBitsPerSecond: Infinity, fps: -1 }, expected: 24_000_000 },
+    { options: { videoBitsPerSecond: -10, fps: 15 }, expected: 3_000_000 },
+    { options: { videoBitsPerSecond: 1_000_000_000 }, expected: 100_000_000 },
+    { options: { videoBitsPerSecond: 35_000_000.7 }, expected: 35_000_001 },
+  ];
+  for (const { options, expected } of cases) {
+    const recorder = createVideoRecorder(env.canvas);
+    const pending = recorder.start(5, "quality", null, options);
+    const encoder = env.Recorder.instances.at(-1)!;
+    assert.equal(encoder.options.videoBitsPerSecond, expected);
+    assert.equal(encoder.options.audioBitsPerSecond, 256_000);
+    recorder.dispose();
+    await assert.rejects(pending, { name: "AbortError" });
+  }
+  assert.ok(env.requestedRates.every((fps) => fps === 30));
+  assert.ok(env.tracks.every((track) => track.stopped === 1));
+  assert.equal(env.downloads.length, 0);
+});
+
+test("4K with music prefers H.264 level 5.2 and safely retries lower codec candidates", async (t) => {
+  const env = browser(t);
+  env.canvas.width = 2160;
+  env.canvas.height = 3840;
+  const high = "video/mp4;codecs=avc1.640034,mp4a.40.2";
+  const fallback = "video/mp4;codecs=avc1.640028,mp4a.40.2";
+  env.Recorder.allowed = new Set(["video/mp4", high, fallback]);
+  const clones: { stopped: number; stop(): void }[] = [];
+  const original = {
+    stopped: 0,
+    stop() { this.stopped++; },
+    clone() { const clone = { stopped: 0, stop() { this.stopped++; } }; clones.push(clone); return clone; },
+  };
+  const music = { getAudioTracks: () => [original] } as unknown as MediaStream;
+  const preferred = createVideoRecorder(env.canvas);
+  const first = preferred.start(5, "4k", music, { videoBitsPerSecond: 80_000_000 });
+  assert.equal(env.Recorder.instances[0].mimeType, high);
+  assert.equal(env.Recorder.instances[0].options.videoBitsPerSecond, 80_000_000);
+  assert.equal(env.Recorder.instances[0].options.audioBitsPerSecond, 256_000);
+  preferred.dispose();
+  await assert.rejects(first, { name: "AbortError" });
+
+  env.Recorder.failAfterStart.add(high);
+  const recorder = createVideoRecorder(env.canvas);
+  const retry = recorder.start(5, "4k-fallback", music, { videoBitsPerSecond: 80_000_000 });
+  const failed = env.Recorder.instances[1];
+  const succeeded = env.Recorder.instances[2];
+  assert.equal(failed.mimeType, high);
+  assert.equal(failed.stopCount, 1);
+  assert.equal(failed.ondataavailable, null);
+  assert.equal(failed.onerror, null);
+  assert.equal(failed.onstop, null);
+  assert.equal(succeeded.mimeType, fallback);
+  assert.equal(succeeded.options.videoBitsPerSecond, 80_000_000);
+  recorder.stop();
+  await retry;
+  assert.equal(env.downloads.at(-1)!.name, "4k-fallback.mp4");
+  assert.equal(env.canvas.width, 2160);
+  assert.equal(env.canvas.height, 3840);
+  assert.ok(env.tracks.every((track) => track.stopped === 1));
+  assert.ok(clones.every((track) => track.stopped === 1));
+  assert.equal(original.stopped, 0);
+  recorder.dispose();
+});
+
+test("early music clone failures and throwing codec probes release capture tracks without touching original audio", async (t) => {
+  const env = browser(t);
+  const clone = { stopped: 0, stop() { this.stopped++; } };
+  const original = { stopped: 0, stop() { this.stopped++; }, clone: () => clone };
+  const broken = { clone() { throw new Error("audio clone failed"); } };
+  const recorder = createVideoRecorder(env.canvas);
+  await assert.rejects(recorder.start(5, "bad-audio", { getAudioTracks: () => [original, broken] } as unknown as MediaStream), /audio clone failed/);
+  assert.equal(recorder.active, false);
+  assert.equal(clone.stopped, 1);
+  assert.equal(env.tracks[0].stopped, 1);
+  assert.equal(original.stopped, 0);
+  t.mock.method(env.Recorder, "isTypeSupported", () => { throw new Error("codec probe failed"); });
+  await assert.rejects(recorder.start(5, "probe-failed"), /No video encoder is available/);
+  assert.equal(recorder.active, false);
+  assert.ok(env.tracks.every((track) => track.stopped === 1));
+  assert.equal(env.downloads.length, 0);
+  recorder.dispose();
 });

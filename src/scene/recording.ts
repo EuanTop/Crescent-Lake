@@ -1,7 +1,16 @@
+import { videoQuality } from "./export-quality.ts";
+
 export type RecordingState = "recording" | "finalizing" | "idle";
 
 export interface VideoRecorderCallbacks {
   onState?(state: RecordingState, elapsed: number): void;
+}
+
+export interface VideoRecordingOptions {
+  /** Encoder target, clamped to 3–100 Mbps. Invalid values use the HD default. */
+  videoBitsPerSecond?: number;
+  /** This release records at 30fps; other values normalize to 30. */
+  fps?: number;
 }
 
 export interface VideoRecorder {
@@ -12,6 +21,7 @@ export interface VideoRecorder {
     duration: number,
     filename: string,
     audio?: MediaStream | null,
+    options?: VideoRecordingOptions,
   ): Promise<void>;
   stop(): void;
   dispose(): void;
@@ -20,6 +30,7 @@ export interface VideoRecorder {
 // A video-only stream needs no audio codec. Query the browser rather than
 // assuming that a particular browser name guarantees an installed encoder.
 const MIME_TYPES = [
+  "video/mp4;codecs=avc1.640034",
   "video/mp4;codecs=avc1.640028",
   "video/mp4;codecs=avc1.42E028",
   "video/mp4",
@@ -27,6 +38,20 @@ const MIME_TYPES = [
   "video/webm;codecs=vp8",
   "video/webm",
 ];
+
+function supportedMime(Recorder: typeof MediaRecorder, mime: string): boolean {
+  try { return Recorder.isTypeSupported(mime); } catch { return false; }
+}
+
+function recordingSettings(options?: VideoRecordingOptions): { fps: 30; bitrate: number } {
+  const requested = options?.videoBitsPerSecond;
+  return {
+    fps: 30,
+    bitrate: typeof requested === "number" && Number.isFinite(requested)
+      ? Math.round(Math.min(100_000_000, Math.max(3_000_000, requested)))
+      : videoQuality("hd").videoBitsPerSecond,
+  };
+}
 
 interface RecordingSession {
   stream: MediaStream;
@@ -77,13 +102,7 @@ export function createVideoRecorder(
   const Recorder = typeof MediaRecorder === "undefined" ? null : MediaRecorder;
   const candidates =
     Recorder && typeof Recorder.isTypeSupported === "function"
-      ? MIME_TYPES.filter((mime) => {
-          try {
-            return Recorder.isTypeSupported(mime);
-          } catch {
-            return false;
-          }
-        })
+      ? MIME_TYPES.filter((mime) => supportedMime(Recorder, mime))
       : [];
   const supported =
     typeof canvas.captureStream === "function" &&
@@ -242,7 +261,7 @@ export function createVideoRecorder(
     get active() {
       return session !== null;
     },
-    async start(duration, filename, audio) {
+    async start(duration, filename, audio, options) {
       if (disposed) throw new Error("The video recorder is closed.");
       if (!supported || !Recorder)
         throw new Error(
@@ -257,16 +276,24 @@ export function createVideoRecorder(
       const seconds = Number.isFinite(duration)
         ? Math.min(60, Math.max(5, duration))
         : 15;
-      // Capture may throw SecurityError for a canvas containing cross-origin art.
-      const stream = canvas.captureStream(30);
-      if (!stream.getVideoTracks().length) {
-        stream.getTracks().forEach((track) => track.stop());
-        throw new Error("The canvas video stream could not be captured.");
+      const settings = recordingSettings(options);
+      // Read source tracks before capture, then clone them with failure cleanup.
+      // A quality/codec negotiation failure must never stop the live music track.
+      const audioTracks = audio?.getAudioTracks() ?? [];
+      let captured: MediaStream | undefined;
+      try {
+        captured = canvas.captureStream(settings.fps);
+        if (!captured.getVideoTracks().length) throw new Error("The canvas video stream could not be captured.");
+        for (const track of audioTracks) {
+          const clone = track.clone();
+          try { captured.addTrack(clone); }
+          catch (error) { clone.stop(); throw error; }
+        }
+      } catch (error) {
+        captured?.getTracks().forEach((track) => track.stop());
+        throw error;
       }
-      // Clone music tracks: finishing a video must not stop live playback.
-      for (const track of audio?.getAudioTracks() ?? []) {
-        stream.addTrack(track.clone());
-      }
+      const stream = captured;
       return new Promise<void>((resolve, reject) => {
         const current: RecordingSession = {
           stream,
@@ -285,27 +312,24 @@ export function createVideoRecorder(
         };
         session = current;
         let lastError: Error | undefined;
-        const recordingTypes = audio?.getAudioTracks().length
-          ? [
-              "video/mp4;codecs=avc1.640028,mp4a.40.2",
-              "video/mp4",
-              "video/webm;codecs=vp9,opus",
-              "video/webm;codecs=vp8,opus",
-              "video/webm",
-            ].filter((mime) => Recorder.isTypeSupported(mime))
-          : candidates;
+        const is4k = Math.max(canvas.width, canvas.height) > 1920;
+        const avc = is4k
+          ? ["avc1.640034", "avc1.640028", "avc1.42E028"]
+          : ["avc1.640028", "avc1.42E028", "avc1.640034"];
+        const recordingTypes = [
+          ...avc.map((codec) => `video/mp4;codecs=${codec}${audioTracks.length ? ",mp4a.40.2" : ""}`),
+          "video/mp4",
+          `video/webm;codecs=vp9${audioTracks.length ? ",opus" : ""}`,
+          `video/webm;codecs=vp8${audioTracks.length ? ",opus" : ""}`,
+          "video/webm",
+        ].filter((mime) => supportedMime(Recorder, mime));
         for (const mime of recordingTypes) {
           let candidate: MediaRecorder | null = null;
           try {
             candidate = new Recorder(stream, {
               mimeType: mime,
-              videoBitsPerSecond: Math.min(
-                14_000_000,
-                Math.max(
-                  3_000_000,
-                  Math.round(canvas.width * canvas.height * 30 * 0.13),
-                ),
-              ),
+              videoBitsPerSecond: settings.bitrate,
+              audioBitsPerSecond: 256_000,
             });
             current.recorder = candidate;
             candidate.ondataavailable = (event: BlobEvent) => {

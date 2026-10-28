@@ -1,5 +1,7 @@
 import "./style.css";
 import { createLakeMusic } from "./scene/music";
+import { masterAvailable } from "./scene/master-export";
+import { videoQuality, type VideoQuality } from "./scene/export-quality";
 import { createWorld } from "./scene/world";
 import { palettes, type PaletteId } from "./scene/palettes";
 import { visualStyles, type VisualStyleId } from "./scene/styles";
@@ -22,7 +24,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <div class="actions"><button id="pause" disabled aria-label="Pause landscape" aria-pressed="false">${pauseIcon}<span>Pause</span></button><button id="save" disabled>${downloadIcon}<span>Save image</span></button></div>
       <fieldset><legend>Frame</legend><div class="segmented"><button class="active" data-frame="portrait" aria-pressed="true">Portrait 9:16</button><button data-frame="landscape" aria-pressed="false">Landscape 16:9</button></div></fieldset>
       <fieldset><legend>Soundtrack</legend><div class="actions"><button id="music" aria-pressed="false">Play lake music</button><button id="save-audio">Save loop audio</button></div><label class="switch-row" for="include-music"><span>Include music in video</span><input id="include-music" type="checkbox" checked><span class="switch" aria-hidden="true"></span></label><p class="export-note">Warm chords & a slow stereo drift. Headphones welcome.</p></fieldset>
-      <fieldset class="video-control"><legend>Export video</legend><div class="video-options"><label for="duration">Duration</label><select id="duration"><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option><option value="17">17 seconds</option><option value="20">20 seconds</option><option value="24" selected>24 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option></select></div><label class="switch-row" for="loop-film"><span>Loop one lake circuit · 24 s</span><input id="loop-film" type="checkbox" checked><span class="switch" aria-hidden="true"></span></label><label class="switch-row" for="light-journey"><span id="journey-label">Morning → Golden → Morning</span><input id="light-journey" type="checkbox" checked><span class="switch" aria-hidden="true"></span></label><button id="record" class="record-button" disabled>Export video</button><progress id="record-progress" max="20" value="0" hidden></progress><p id="record-status" class="export-note" role="status" aria-live="polite">1080 × 1920 · 30 fps · artwork + titles</p></fieldset>
+      <fieldset class="video-control"><legend>Export video</legend><div class="video-options"><label for="video-quality">Quality</label><select id="video-quality"><option value="master" selected>4K lossless master + MP4</option><option value="4k">4K high quality · MP4</option><option value="hd">HD · smaller file</option></select></div><p class="export-note" id="quality-note">Every frame, at full quality. Larger files; rendering takes longer.</p><div id="export-downloads" class="export-downloads" hidden></div><div class="video-options"><label for="duration">Duration</label><select id="duration"><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option><option value="17">17 seconds</option><option value="20">20 seconds</option><option value="24" selected>24 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option></select></div><label class="switch-row" for="loop-film"><span>Loop one lake circuit · 24 s</span><input id="loop-film" type="checkbox" checked><span class="switch" aria-hidden="true"></span></label><label class="switch-row" for="light-journey"><span id="journey-label">Morning → Golden → Morning</span><input id="light-journey" type="checkbox" checked><span class="switch" aria-hidden="true"></span></label><button id="record" class="record-button" disabled>Export video</button><progress id="record-progress" max="20" value="0" hidden></progress><p id="record-status" class="export-note" role="status" aria-live="polite">1080 × 1920 · 30 fps · artwork + titles</p></fieldset>
       <fieldset class="palette-control"><legend>Color story</legend>${Object.entries(
         palettes,
       )
@@ -58,6 +60,7 @@ const record = get<HTMLButtonElement>("#record");
 const recordStatus = get<HTMLParagraphElement>("#record-status");
 const progress = get<HTMLProgressElement>("#record-progress");
 const duration = get<HTMLSelectElement>("#duration");
+const quality = get<HTMLSelectElement>("#video-quality");
 const loopFilm = get<HTMLInputElement>("#loop-film");
 duration.disabled = true;
 loopFilm.addEventListener("change", () => {
@@ -180,11 +183,36 @@ try {
     pause.setAttribute("aria-pressed", String(world.paused));
   }
   updatePause();
-  function videoNote() {
-    const portrait = get(".gallery").dataset.frame === "portrait";
-    return `${portrait ? "1080 × 1920" : "1920 × 1080"} · 30 fps · ${world.videoFormat} · artwork + titles`;
+  const losslessAvailable = await masterAvailable();
+  if (!losslessAvailable) {
+    quality.querySelector<HTMLOptionElement>('option[value="master"]')!.disabled = true;
+    quality.value = "4k";
   }
-  record.disabled = !world.videoSupported;
+  const canExport = () => quality.value === "master" ? losslessAvailable : world.videoSupported;
+  function videoNote() {
+    const profile = videoQuality(quality.value === "hd" ? "hd" : "4k", get(".gallery").dataset.frame === "portrait");
+    return `${profile.width} × ${profile.height} · 30 fps · ${quality.value === "master" ? "lossless master + 4K MP4" : world.videoFormat} · artwork + titles`;
+  }
+  function updateQuality() {
+    const master = quality.value === "master";
+    if (master) {
+      loopFilm.checked = true;
+      duration.value = "24";
+      get("#journey-label").textContent = "Morning → Golden → Morning";
+    }
+    loopFilm.disabled = master;
+    duration.disabled = loopFilm.checked;
+    get("#quality-note").textContent = master
+      ? "Every frame, at full quality. Larger files; rendering takes longer."
+      : quality.value === "4k" ? "Native 4K with a high-quality video encode."
+      : "A smaller HD video for quick sharing.";
+    record.textContent = master ? "Export lossless film" : "Export video";
+    recordStatus.textContent = videoNote();
+    record.disabled = !canExport();
+  }
+  quality.addEventListener("change", updateQuality);
+  updateQuality();
+  record.disabled = !canExport();
   recordStatus.textContent = world.videoSupported
     ? videoNote()
     : "Video export is unavailable in this browser.";
@@ -223,7 +251,7 @@ try {
       }
       updateMusic();
       button.disabled = musicButton.disabled = false;
-      record.disabled = !world.videoSupported;
+      record.disabled = !canExport();
     }
   });
   record.addEventListener("click", async () => {
@@ -234,6 +262,8 @@ try {
     recording = true;
     const musicWasPlaying = musicPlaying;
     const loop = loopFilm.checked;
+    const isMaster = quality.value === "master";
+    const originalTitle = document.title;
     const controls = Array.from(
       panel.querySelectorAll<
         HTMLButtonElement | HTMLInputElement | HTMLSelectElement
@@ -271,6 +301,32 @@ try {
           () => music.setVolume(0, 2),
           Math.max(0, Number(duration.value) - 2) * 1000,
         );
+      if (isMaster) {
+        record.textContent = "Stop export";
+        const files = await world.exportMaster(
+          includeMusic ? music.getLoopWav() : undefined,
+          get<HTMLInputElement>("#light-journey").checked,
+          (frame, frames, finishing) => {
+            progress.value = frame / 30;
+            recordStatus.textContent = finishing ? "Finishing your films…" : `Creating your film · ${Math.round(frame / frames * 100)}%`;
+            document.title = finishing ? "Finishing · Crescent Lake" : `${Math.round(frame / frames * 100)}% · Crescent Lake`;
+          },
+        );
+        const links = get("#export-downloads");
+        links.replaceChildren();
+        for (const [href, label] of [[files.masterUrl, "Download lossless master"], [files.shareUrl, "Download 4K MP4"]]) {
+          if (!href.startsWith("/__lake_export/file/")) throw new Error("The exported film could not be located.");
+          const link = document.createElement("a");
+          link.href = href;
+          link.textContent = label;
+          link.className = "record-button";
+          link.download = "";
+          links.append(link);
+        }
+        links.hidden = false;
+        setPanel(true);
+        announce("Your lossless master and4K film are ready.");
+      } else {
       await world.recordVideo(
         Number(duration.value),
         includeMusic ? music.stream : null,
@@ -282,10 +338,13 @@ try {
           // Recording a full 24s still closes the periodic score at any phase.
           await new Promise<void>((resolve) => setTimeout(resolve, 200));
         } : undefined,
+        quality.value as VideoQuality,
       );
       announce("Your lake video is ready to download.");
+      }
     } catch (error) {
-      errorMessage =
+      errorMessage = error instanceof DOMException && error.name === "AbortError"
+        ? "Film export cancelled." :
         error instanceof Error
           ? error.message
           : "The video could not be exported. Please try again.";
@@ -294,6 +353,7 @@ try {
       recording = false;
       clearTimeout(musicFade);
       document.body.classList.remove("is-recording");
+      document.title = originalTitle;
       if (loop) {
         music.stop();
         musicPlaying = false;
@@ -316,11 +376,12 @@ try {
       controls.forEach(
         (control, index) => (control.disabled = previous[index]),
       );
-      record.disabled = !world.videoSupported;
+      record.disabled = !canExport();
       record.textContent = "Export video";
       recordStatus.textContent = errorMessage || videoNote();
       progress.hidden = true;
-      duration.disabled = loopFilm.checked;
+      updateQuality();
+      if (errorMessage) recordStatus.textContent = errorMessage;
       updatePause();
     }
   });
