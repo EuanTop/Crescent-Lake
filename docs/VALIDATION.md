@@ -1,5 +1,12 @@
 # Validation
 
+## Wake shape restoration — 2026-10-28 (v0.5.1)
+
+- The initial fast-loop fix scaled fade alone; its0.4-second emission cadence left widely separated small arcs at the new speed. Restored the accepted spatial design by scaling the full wake clock:215 emissions per24-second lap, approximately0.11163seconds between emissions and3.5833× expansion/fade. Around55 overlapping marks retain the earlier fan form and5.3-world-unit trailing reach. Wind waves, palette, route speed, lighting, typography and music are unchanged.
+- Preview and capture now both sample the exact route on a fixed emission grid, independent of rendered frame rate. Birth time, shader radius/width, fade and historical heading agree. Prewarming and the integer number of emissions close the trail at the film seam.
+- Arc on the existing5173 server recorded a new1080×1920 portrait clip. Extracted0/6/12/23.93-second frames confirm dense fan-shaped arcs and soft fading through the light cycle. Final `artifacts/crescent-lake-restored-wake-24s.mp4` is24.003933seconds,H.264 with stereo AAC, using the retained original24-second WAV and no video re-encoding. The prior delivered clip remains available for comparison.
+- Added regression checks for spatial density, full-clock expansion/fade agreement and identical prewarmed trail states across24-second cycles. All60tests and the production build pass.
+
 ## Twenty-four-second closed film — 2026-10-28 (v0.5)
 
 - Reused the existing5173 server and Arc native UI, with Portrait9:16, Cel Illustration, Soft Sage,100% wind/activity, clouds, birds, music, full-circuit loop and light journey enabled. No additional server was started.

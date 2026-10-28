@@ -17,7 +17,7 @@ import {
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createLandscape } from "./landscape";
 import { createToonMaterial, updatePaletteLighting } from "./materials";
-import { advanceDistance, clampMotionStrength } from "./motion";
+import { advanceDistance, clampMotionStrength, wakeTimingForLap } from "./motion";
 import { createWater } from "./water";
 import { palettes, type PaletteId } from "./palettes";
 import { createSwanMotion } from "./swan";
@@ -25,7 +25,6 @@ import { createAtmosphere } from "./atmosphere";
 import { createPainterly } from "./painterly";
 import { paintPresentation } from "./presentation";
 import { LOOP_SECONDS, loopPhase, loopWarmth } from "./loop";
-import { WAKE_INTERVAL, WAKE_LIFETIME } from "./motion";
 import { videoWarmth } from "./journey";
 import { frameLake } from "./framing";
 import { createVideoRecorder, type RecordingState } from "./recording";
@@ -134,7 +133,22 @@ export async function createWorld(
     });
   }
   captureGrassPalette();
-  const water = createWater();
+  // Gentle closed route, entirely inside the open part of the lake.
+  const route = new CatmullRomCurve3(
+    [
+      new Vector3(1.9, 0, 2.3),
+      new Vector3(4, 0, -0.7),
+      new Vector3(2.0, 0, -4.2),
+      new Vector3(-1.2, 0, -3.2),
+      new Vector3(-1.8, 0, 0.4),
+      new Vector3(-0.2, 0, 3.0),
+    ],
+    true,
+    "centripetal",
+  );
+  const routeLength = route.getLength();
+  const wakeTiming = wakeTimingForLap(routeLength, LOOP_SECONDS);
+  const water = createWater(wakeTiming.timeScale);
   scene.add(water.mesh);
 
   const bird = new Group();
@@ -187,20 +201,6 @@ export async function createWorld(
   const atmosphere = createAtmosphere();
   scene.add(atmosphere.group);
 
-  // Gentle closed route, entirely inside the open part of the lake.
-  const route = new CatmullRomCurve3(
-    [
-      new Vector3(1.9, 0, 2.3),
-      new Vector3(4, 0, -0.7),
-      new Vector3(2.0, 0, -4.2),
-      new Vector3(-1.2, 0, -3.2),
-      new Vector3(-1.8, 0, 0.4),
-      new Vector3(-0.2, 0, 3.0),
-    ],
-    true,
-    "centripetal",
-  );
-  const routeLength = route.getLength();
   let distance = routeLength * 0.76;
   let elapsed = 0;
   let lastStamp = 0;
@@ -270,7 +270,7 @@ export async function createWorld(
     route.getPointAt(u, point);
     route.getTangentAt(u, direction);
     point.addScaledVector(direction, -1.1);
-    water.history.sample(time, point.x, point.z);
+    water.history.sample(time * wakeTiming.timeScale, point.x, point.z);
   }
   function frame(stamp: number) {
     if (disposed || shaderFailed) return;
@@ -331,11 +331,9 @@ export async function createWorld(
         );
       }
     }
-    if (movieLoop) {
-      while (nextWake <= elapsed + 1e-8) {
-        sampleLoopWake(nextWake, loopDuration);
-        nextWake += WAKE_INTERVAL;
-      }
+    while (nextWake <= elapsed + 1e-8) {
+      sampleLoopWake(nextWake, loopDuration);
+      nextWake += wakeTiming.interval;
     }
     water.update(
       elapsed,
@@ -346,7 +344,7 @@ export async function createWorld(
       tail.x,
       tail.z,
       loopDuration,
-      !!movieLoop,
+      true,
     );
     (scene.background as Color)
       .copy(morningBackground)
@@ -452,14 +450,14 @@ export async function createWorld(
         duration = LOOP_SECONDS;
         movieLoop = { duration, startedAt: null, light: journey };
         water.history.reset();
-        const beginning = duration - WAKE_LIFETIME;
+        const beginning = duration - wakeTiming.lifetime;
         for (
           let time = beginning;
           time <= duration + 1e-8;
-          time += WAKE_INTERVAL
+          time += wakeTiming.interval
         )
           sampleLoopWake(time, duration);
-        nextWake = duration + WAKE_INTERVAL;
+        nextWake = duration + wakeTiming.interval;
       }
       if (journey) lightJourney = { duration, startedAt: null };
       const pixelRatio = renderer.getPixelRatio();
@@ -491,6 +489,7 @@ export async function createWorld(
           elapsed = previousTime;
           distance = previousDistance;
           water.history.reset();
+          nextWake = previousTime;
         }
         movieLoop = null;
         lightJourney = null;

@@ -6,6 +6,18 @@ export const WAKE_FADE_IN = 0.55;
 export const WAKE_FADE_OUT_START = 14;
 export const WAKE_DECAY = 0.025;
 
+/** Preserve the accepted wake's spatial density and expansion at a new lap speed.
+ * Whole emissions per lap also make the prewarmed trail repeat at the film seam.
+ */
+export function wakeTimingForLap(length: number, seconds: number) {
+  if (!Number.isFinite(length) || !Number.isFinite(seconds) || length <= 0 || seconds <= 0)
+    throw new RangeError("Wake timing requires a positive route length and duration.");
+  const emissions = Math.max(1, Math.round(length / (0.24 * WAKE_INTERVAL)));
+  const interval = seconds / emissions;
+  const timeScale = WAKE_INTERVAL / interval;
+  return { emissions, interval, timeScale, lifetime: WAKE_LIFETIME / timeScale };
+}
+
 export function advanceDistance(
   distance: number,
   dt: number,

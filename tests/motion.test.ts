@@ -5,12 +5,55 @@ import {
   advanceWindPhase,
   clampMotionStrength,
   windResponse,
+  wakeTimingForLap,
   WAKE_CAPACITY,
   WAKE_INTERVAL,
   WAKE_LIFETIME,
   WakeHistory,
   wakeStrength,
 } from "../src/scene/motion.ts";
+
+test("accelerated laps preserve the accepted wake's spacing, expansion and fade together", () => {
+  const length = 20.6183;
+  const timing = wakeTimingForLap(length, 24);
+  assert.equal(timing.emissions, 215);
+  assert.ok(Math.abs(timing.interval * timing.emissions - 24) < 1e-12);
+  // Spatial cadence matches the former .24 world units/s scene to within0.2%.
+  const oldSpacing = .24 * WAKE_INTERVAL;
+  assert.ok(Math.abs(length / timing.emissions - oldSpacing) < oldSpacing * .002);
+  const history = new WakeHistory();
+  for (let i = 0; i <= timing.emissions; i++) {
+    const realTime = i * timing.interval;
+    history.sample(realTime * timing.timeScale, i * length / timing.emissions, 0);
+  }
+  assert.ok(history.points.length >= 54 && history.points.length <= 56);
+  for (const oldAge of [.2, 1, 5, 10, 15, 20, 22]) {
+    const realAge = oldAge / timing.timeScale;
+    const renderedAge = realAge * timing.timeScale;
+    assert.ok(Math.abs(wakeStrength(renderedAge) - wakeStrength(oldAge)) < 1e-12);
+    assert.ok(Math.abs((.19 + renderedAge * .105) - (.19 + oldAge * .105)) < 1e-12);
+  }
+  assert.ok(timing.lifetime > 6 && timing.lifetime < 6.3);
+});
+
+test("prewarmed wake geometry and ages close after each24-second circuit", () => {
+  const timing = wakeTimingForLap(20.6183, 24);
+  const snapshot = (lap: number) => {
+    const now = lap * 24;
+    const history = new WakeHistory();
+    for (let i = lap * timing.emissions - 55; i <= lap * timing.emissions; i++) {
+      const t = i * timing.interval;
+      const angle = 2 * Math.PI * t / 24;
+      history.sample(t * timing.timeScale, Math.cos(angle), Math.sin(angle));
+    }
+    return history.points.filter(p => wakeStrength(now * timing.timeScale - p.born) > 1e-9)
+      .map(p => [p.x, p.z, now * timing.timeScale - p.born]);
+  };
+  const start = snapshot(1), end = snapshot(2);
+  assert.equal(start.length, end.length);
+  start.forEach((point, i) => point.forEach((value, j) =>
+    assert.ok(Math.abs(value - end[i][j]) < 1e-10)));
+});
 
 test("equal real time gives equal travel at 30 and 120 frames per second, including a route wrap", () => {
   let slow = 9,

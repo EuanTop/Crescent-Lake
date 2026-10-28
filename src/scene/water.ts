@@ -19,7 +19,7 @@ import {
   windResponse,
 } from "./motion";
 
-export function createWater() {
+export function createWater(wakeTimeScale = 1) {
   const wakeUniform = Array.from(
     { length: WAKE_CAPACITY },
     () => new Vector4(0, 0, -100, 0),
@@ -45,6 +45,7 @@ export function createWater() {
         uReflectionTint: { value: new Color(palettes.sage.reflection) },
         uGoldenWaterLight: { value: new Color(GOLDEN_WATER_LIGHT) },
         uTime: { value: 0 },
+        uWakeTime: { value: 0 },
         uWindPhase: { value: 0 },
         uLoopDuration: { value: 0 },
         uLoopAngle: { value: 0 },
@@ -73,7 +74,7 @@ export function createWater() {
       fragmentShader: /* glsl */ `
         uniform sampler2D tDiffuse;
         uniform vec3 uDeep, uPale, uReflectionTint, uGoldenWaterLight;
-        uniform float uTime, uWindPhase, uWind, uWarmth, uReflection;
+        uniform float uTime, uWakeTime, uWindPhase, uWind, uWarmth, uReflection;
         uniform float uLoopDuration,uLoopAngle,uLoopWaterRate,uWaveCycles,uSwayCycles;
         uniform vec2 uLoopOrbit;
         uniform vec2 uBird;
@@ -164,7 +165,7 @@ export function createWater() {
           float wakeDark = 0.0;
           for (int i = 0; i < ${WAKE_CAPACITY}; i++) {
             if (i >= uWakeCount) break;
-            float age = uTime - uWakes[i].z;
+            float age = uWakeTime - uWakes[i].z;
             if (age <= 0.0 || age >= ${WAKE_LIFETIME.toFixed(4)}) continue;
             vec2 d = p - uWakes[i].xy;
             // Skip most fragments before doing the exponential ridge work.
@@ -264,7 +265,8 @@ export function createWater() {
         response.strength,
       );
       lastTime = now;
-      if (!manualWake) history.sample(now, tailX, tailZ);
+      const wakeTime = now * wakeTimeScale;
+      if (!manualWake) history.sample(wakeTime, tailX, tailZ);
       const loop = loopWind(now,wind,loopDuration);
       material.uniforms.uLoopDuration.value = loop.duration;
       material.uniforms.uLoopAngle.value = loop.angle;
@@ -273,6 +275,7 @@ export function createWater() {
       material.uniforms.uWaveCycles.value = loop.waveCycles;
       material.uniforms.uSwayCycles.value = loop.swayCycles;
       material.uniforms.uTime.value = now;
+      material.uniforms.uWakeTime.value = wakeTime;
       material.uniforms.uWindPhase.value = windPhase;
       material.uniforms.uWind.value = response.amplitude;
       material.uniforms.uWarmth.value = lightingAmount(warmth);
@@ -285,11 +288,9 @@ export function createWater() {
           point.x,
           point.z,
           point.born,
-          // The faster one-lap film should retain a trailing ribbon, rather
-          // than drawing almost the complete route with the preview's 22s tail.
-          wakeStrength((now - point.born) * (loopDuration
-            ? WAKE_LIFETIME / Math.min(WAKE_LIFETIME, loopDuration * .28)
-            : 1)),
+          // Expansion, emission and fading share the same accelerated clock.
+          // Scaling only the fade turns the original fan into separated circles.
+          wakeStrength(wakeTime - point.born),
         );
         const direction = history.directionFor(point);
         wakeDirections[i].set(direction.x, direction.z);
